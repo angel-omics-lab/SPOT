@@ -2,6 +2,7 @@
 This script contains class modules for spatial proteomics analysis 
 '''
 import pandas as pd 
+import numpy as np
 
 ''' Example of roi_label format
 roi_labels = {
@@ -22,29 +23,34 @@ class SpatialProteomicsAnalyzer:
         
     def load_and_preprocess(self):
         '''
-        Load ROIs, filter out the ones with >80% 0s, then normalize the intensities via log transform
+        Load ROIs, filter out the ones with >25% 0s, then normalize the intensities via log transform
         
         Returns: 
-            None, but roi_labels (list) is updated from filtering. And intensities are normalized. 
+            None, but roi_labels (dict) is updated from filtering. And intensities are normalized. 
         '''
         print('Filtering ROIs...')
-        for region, label in self.roi_labels:
-            data = pd.read_excel(self.data_path, sheet_name=region)     ### NOTE may need to change dep on how sheets are formatted
+        for region, label in self.roi_labels.items():
+            data = pd.read_excel(self.data_path, sheet_name=region)
+            intensities = data.iloc[:, 4:]      # Skip first 4 columns 
             print(f'Processing {region}...')
-            na = data.isnull().sum()        # Number of NaN intensities     ### NOTE maybe add or zero to na count??
+            intensities = intensities.fillna(0)        # Change all NaN values to 0 
+            zeros = (intensities==0).astype(int).sum().sum()      # Number of 0 intensities
+            total = intensities.shape[0]*data.shape[1]     # Total number of intensities
             
-            if na > (0.25*data.shape[1]):       # Remove ROI from list if >25% of peptides are null 
-                self.roi_labels.remove(region)
-                print(f'Removed {region} with {label} label from list: >25% NaN intensities.')
-                break       ### NOTE check to make sure this does what I think it does
-            else: print(f'{region} accepted')
-        print('ROI filtering complete. Filtered list: ', self.roi_labels)
+            if zeros > (0.25*total):       # Remove ROI from list if >25% of peptides are 0 
+                del self.roi_labels[region]
+                print(f'Removed {region} with {label} label from list: >25% zero intensities.')
+            else: 
+                print(f'{region} accepted')
+                print(f'Normalizing intensities in {region}')
+                data.iloc[:, 4:] = np.log(data.iloc[:, 4:])  # Natural log intensities
+                ### NOTE save normalized intensities somewhere?? 
+        print('ROI filtering complete. Filtered list: ', self.roi_labels.keys())
 
-            ### NOTE add normalizing here
     
+        
     
-    
-    def compute_sparsity(self, threshold=0.2): 
+    def compute_peptide_sparsity(self): 
         '''
         Calculate which peptides are expressed across all ROIs, then remove those that arent. 
         
@@ -53,23 +59,24 @@ class SpatialProteomicsAnalyzer:
 
         
         Returns: 
-            good_peptides(1d-array): list of all peptides that are expressed across ROIs. 
+            good_peptides(list): list of all peptides that are expressed across ROIs. 
         '''
         
         print('Filtering peptides...')
-        for peptide in peptide_list and region in self.roi_labels:
-            intensities = []
-            for region in self.roi_labels:
-                # calculate intensity of peptide in region
-                intensities.append(value)
-            if intensities.isnull().sum(0) > (threshold*intensities.shape[0]):    # Only add peptide to good list if it appears in > threshold% of ROIs
-                print(f'Peptide {peptide} did not meet threshold for ROI presence')
-                break
-            else: 
-                self.good_peptides.append(peptide)
-                print(f'Peptide {peptide} accepted')
-            
+        peptide_list = [758.4519, 797.4264, 976.4517]
+        roi_data = {region: pd.read_excel(self.data_path, sheet_name=region).iloc[:, 4] for region in self.roi_labels}       # Read all ROIs into a dict
+        all_data = pd.concat(roi_data, names=['ROI', 'sample'])     # Stack all ROI data with ROI labels
+
+        zero_pct_per_roi = (all_data == 0).groupby(level='ROI').mean()      # Calculate zero percentage per peptide per ROI 
+
+        rois_with_low_zeros = (zero_pct_per_roi < 0.2).sum(axis=0)     # Count ROIs where each peptide has <20% zeros
+
+        # Count peptides that are abundant in > 10% ROIs
+        threshold = len(self.roi_labels)*0.1 
+        self.good_peptides = rois_with_low_zeros[rois_with_low_zeros>=threshold].index
+
         print('Peptide filtering complete. Filtered list: ', self.good_peptides)
+        return self.good_peptides
     
     
     
