@@ -83,6 +83,7 @@ class SpatialProteomicsAnalyzer:
     
     
 
+
     def diff_expression_test(self): 
         '''
         Identifies peptides that have differential expression between classes (in this instance DCIS v IBC) via 
@@ -91,16 +92,27 @@ class SpatialProteomicsAnalyzer:
         Returns:
             good_peptides(list) updated so it is now only those differentially expressed.
         '''
+        data = pd.read_excel(self.data_path, sheet_name=None)
+        results_list = []
         print('Identifying differentially expressed peptides')
         for peptide in self.good_peptides:
-            group1 = #intensities of peptide in DCIS (class 1) rois
-            group2 = # intensities of peptide in IBC (class 2) rois
-            # Run KW, add p val to df
+            group1 = [data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']     # Mean intensities of peptide in DCIS (class 1) rois
+            group2 = [data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'IBC']      # Mean Intensities of peptide in IBC (class 2) rois
+            # Run KW
             H_statistic, p_value = stats.kruskal(group1, group2)
-            # Run BH FDR, add q val to df 
-            reject, q_value, _, _ = multipletests(p_value, alpha=0.05, method='fdr_bh')
-        
+            # Add to data frame 
+            results_list.append({
+            'peptide': peptide, 
+            'pvalue_ols': p_value
+            })
+        results_df = pd.DataFrame(results_list)
+        # Run BH FDR, add q val to df 
+        reject, q_values, _, _ = multipletests(p_value, alpha=0.05, method='fdr_bh')
+        results_df['qvalue_bh'] = q_values
+        self.good_peptides = self.good_peptides = results_df[results_df['qvalue_bh'] <= 0.05]['peptide'].tolist().dtype(float)
         print('Differential analysis complete. Significant peptides: ', self.good_peptides)
+        
+        
         print('Generating box plots for significant peptides...')
         fig, axs = plt.subplot(len(self.good_peptides)/5, 5, figsize=(4, 4))        # Grid of box plots
         # Give overall plot name, axis, legend 
