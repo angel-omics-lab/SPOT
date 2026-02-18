@@ -3,6 +3,10 @@ This script contains class modules for spatial proteomics analysis
 '''
 import pandas as pd 
 import numpy as np
+import scipy.stats as stats
+from statsmodels.stats.multitest import multipletests 
+from matplotlib import pyplot as plt
+import os 
 
 ''' Example of roi_label format
 roi_labels = {
@@ -46,6 +50,7 @@ class SpatialProteomicsAnalyzer:
                 data.iloc[:, 4:] = np.log(data.iloc[:, 4:])  # Natural log intensities
                 ### NOTE save normalized intensities somewhere?? 
         print('ROI filtering complete. Filtered list: ', self.roi_labels.keys())
+        return self.roi_labels
 
     
         
@@ -53,32 +58,70 @@ class SpatialProteomicsAnalyzer:
     def compute_peptide_sparsity(self): 
         '''
         Calculate which peptides are expressed across all ROIs, then remove those that arent. 
-        
-        Parameters: 
-            threshold(float)[0-1]: Percentage of ROIs where specified peptide is absent in. Those below it are not added to 'good' list
 
-        
         Returns: 
             good_peptides(list): list of all peptides that are expressed across ROIs. 
         '''
         
         print('Filtering peptides...')
-        peptide_list = [758.4519, 797.4264, 976.4517]
+        peptide_list = [758.4519, 797.4264, 976.4517]       ## NOTE need to update this
         roi_data = {region: pd.read_excel(self.data_path, sheet_name=region).iloc[:, 4] for region in self.roi_labels}       # Read all ROIs into a dict
         all_data = pd.concat(roi_data, names=['ROI', 'sample'])     # Stack all ROI data with ROI labels
+        zero_counts_per_peptide = pd.Series(dtype=int) 
 
-        zero_pct_per_roi = (all_data == 0).groupby(level='ROI').mean()      # Calculate zero percentage per peptide per ROI 
+        for region in self.roi_labels:
+            intensities = pd.read_excel(self.data_path, sheet_name=region).iloc[:, 4:]
+            zero_pct = (intensities==0).mean()      # Percentage of 0 intensities for each peptide
+            zero_counts_per_peptide = zero_counts_per_peptide.add((zero_pct > 0.20).astype(int), fill_value=0)      # Label peptide for region with 0 if > 20% of values are 0 
 
-        rois_with_low_zeros = (zero_pct_per_roi < 0.2).sum(axis=0)     # Count ROIs where each peptide has <20% zeros
-
-        # Count peptides that are abundant in > 10% ROIs
-        threshold = len(self.roi_labels)*0.1 
-        self.good_peptides = rois_with_low_zeros[rois_with_low_zeros>=threshold].index
+        # Keep peptides that are present in >= 10% ROIs 
+        threshold = len(self.roi_labels)*0.10       
+        self.good_peptides = zero_counts_per_peptide[zero_counts_per_peptide <= threshold].index.tolist()
 
         print('Peptide filtering complete. Filtered list: ', self.good_peptides)
         return self.good_peptides
     
     
+
+    def diff_expression_test(self): 
+        '''
+        Identifies peptides that have differential expression between classes (in this instance DCIS v IBC) via 
+        Kruskal-Wallis test with Benjamini-Hochberg FDR validation. Generates a boxplot of 
+        
+        Returns:
+            good_peptides(list) updated so it is now only those differentially expressed.
+        '''
+        print('Identifying differentially expressed peptides')
+        for peptide in self.good_peptides:
+            group1 = #intensities of peptide in DCIS (class 1) rois
+            group2 = # intensities of peptide in IBC (class 2) rois
+            # Run KW, add p val to df
+            H_statistic, p_value = stats.kruskal(group1, group2)
+            # Run BH FDR, add q val to df 
+            reject, q_value, _, _ = multipletests(p_value, alpha=0.05, method='fdr_bh')
+        
+        print('Differential analysis complete. Significant peptides: ', self.good_peptides)
+        print('Generating box plots for significant peptides...')
+        fig, axs = plt.subplot(len(self.good_peptides)/5, 5, figsize=(4, 4))        # Grid of box plots
+        # Give overall plot name, axis, legend 
+        for i, peptide in self.good_peptides:
+            x = 
+            y = 
+            axs[i, ].boxplot()
+            axs[i, ].title(f'{peptide}')
+            # Create box plot where each box is median (ln) intensity of class 1 and class 2 (diff by color)
+            # Title each subplot with peptide
+        
+        plt.ylabel('ln(Max intensity)')
+        plt.legend()
+        plt.show()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'sig_peptide_boxplots.png'))
+
+
+
+        return self.good_peptides
     
+
+
             
         
