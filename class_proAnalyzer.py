@@ -105,12 +105,14 @@ class SpatialProteomicsAnalyzer:
             'peptide': peptide, 
             'pvalue_ols': p_value
             })
-        results_df = pd.DataFrame(results_list)
+        results_df = pd.DataFrame(results_list) 
         # Run BH FDR, add q val to df 
-        reject, q_values, _, _ = multipletests(p_value, alpha=0.05, method='fdr_bh')
+        reject, q_values, _, _ = multipletests(results_df['pvalue_ols'], alpha=0.05, method='fdr_bh')
         results_df['qvalue_bh'] = q_values
-        self.good_peptides = self.good_peptides = results_df[results_df['qvalue_bh'] <= 0.05]['peptide'].tolist().dtype(float)
+        # Save peptides whose q value is <= 0.05
+        self.good_peptides = self.good_peptides = results_df[results_df['qvalue_bh'] <= 0.05]['peptide'].tolist()
         print('Differential analysis complete. Significant peptides: ', self.good_peptides)
+        print(f'{len(reject)} peptides removed: non-significant')
         
         
         print('Generating box plots for significant peptides...')
