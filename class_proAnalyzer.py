@@ -55,9 +55,20 @@ class SpatialProteomicsAnalyzer:
         print('ROI filtering complete. Filtered list: ', self.roi_labels.keys())
         return self.roi_labels
 
+
     
+    def get_roi_map(self): 
+        data = pd.read_excel(self.data_path, sheet_name=None)
+        print('Generating roi map...')
+        combined = pd.concat(
+            [df.assign(roi=roi) for roi, df in data.items() if roi in self.roi_labels],
+            ignore_index=True
+        )
+        agg_dict = {'x': 'mean', 'y': 'mean', **{r: 'mean' for r in self.roi_labels}}
+        roi_stats = combined.groupby('Class').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'class', 'x', 'y']
         
     
+
     def compute_peptide_sparsity(self): 
         '''
         Calculate which peptides are expressed across all ROIs, then remove those that arent. 
