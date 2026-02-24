@@ -4,6 +4,8 @@ import scipy.stats as stats
 from statsmodels.stats.multitest import multipletests 
 from matplotlib import pyplot as plt
 import os
+import seaborn as sns
+import math 
 
 DATA_PATH = r'C:\Users\AngelLab\Documents\GitHub\spatial-proteomics-analyzer\fake_data_for_testing.xlsx'
 data = pd.read_excel(DATA_PATH, sheet_name=None)
@@ -12,7 +14,16 @@ roi_labels = {
     'ROI_101':'DCIS', 
     'ROI_102':'IBC', 
     'ROI_103':'Normal', 
+    'ROI_104':'DCIS', 
+    'ROI_105':'IBC', 
+    'ROI_106':'DCIS', 
+    'ROI_107':'IBC', 
+    'ROI_108':'DCIS',
+    'ROI_109':'IBC', 
+    'ROI_110':'DCIS',  
 }
+
+good_peptides = [758.4519, 797.4264, 976.4517]
 
 ###### load_and_process ######
 # print('Filtering ROIs...')
@@ -53,7 +64,6 @@ roi_labels = {
 
 
 # ##### differential expression test #####
-good_peptides = [758.4519, 797.4264, 976.4517]
 # results_list = []
 
 # print('Identifying differentially expressed peptides...')
@@ -78,7 +88,6 @@ good_peptides = [758.4519, 797.4264, 976.4517]
 
 
 ###### plot spatial heatmaps ######
-data = pd.read_excel(DATA_PATH, sheet_name=None)
 print('Generating heatmaps for each peptide...')
 # Calculate spatial centroid of each roi
     # Concatenate all ROI sheets, tagging each row with its ROI label
@@ -96,10 +105,53 @@ for peptide in good_peptides:
     plt.scatter(roi_stats['x'], roi_stats['y'], 
                 c=roi_stats[peptide], cmap='RdBu_r', s=100)
     plt.colorbar()
-    plt.savefig(os.path.join(os.path.dirname(DATA_PATH), f'heatmap_{peptide}.png'))
+    plt.xticks([])
+    plt.yticks([])
+    plt.title(peptide, fontsize=16)
+    plt.show()
 print('Spatial heatmap generation successful. Saved to: ', os.path.dirname(DATA_PATH))
 print('ROI stats:', roi_stats)
-print(type(good_peptides[0]))          # what type are your peptide keys?
-print(type(combined.columns[-1]))           # what type did pandas assign?
-print(976.4517 in combined.columns)         # does it actually exist?
-print(good_peptides[-1] in combined.columns)  # does your version match?
+
+
+# ### Generate boxplots 
+# print('Generating box plots for significant peptides...')
+# n_peptides = len(good_peptides)
+# n_cols = 5
+# n_rows = math.ceil(n_peptides/n_cols)
+
+# fig, axs = plt.subplots(n_rows, n_cols, figsize=(n_cols*4, n_rows*4))        # Grid of box plots
+# axs = axs.flatten()     # Flatten so indexing is easier
+# # Give overall plot name, axis, legend 
+# for i, peptide in enumerate(good_peptides):
+#     plot_data = (
+#         [{'Intensity': val, 'Class':'DCIS'}
+#          for region in roi_labels  
+#          if roi_labels[region] == 'DCIS'
+#          for val in [data[region][peptide].mean() for region in roi_labels if roi_labels[region] == 'DCIS' ]]
+#         +
+#         [{'Intensity': val, 'Class':'IBC'} for val in [data[region][peptide].mean() for region in roi_labels if roi_labels[region] == 'IBC' ]]
+#     )
+#     plot_df = pd.DataFrame(plot_data)
+
+#     sns.boxplot(data=plot_df, x='Class', y='Intensity', 
+#                 hue='Class', palette={'DCIS':'blue', 'IBC':'orange'},
+#                 ax=axs[i], legend=False
+#             )
+#     axs[i].set_title(peptide)
+
+# # Hide unused subplots
+# for j in range(i+1, len(axs)): axs[j].set_visible(False)
+            
+# # Shared legend
+# labels = [plt.Rectangle((0,0),1,1, color=c) for c in ['blue', 'orange']]
+# fig.legend(labels, ['DCIS', 'IBC'], loc='upper right')
+
+# # Shared title, yaxislabel
+# fig.suptitle('Differentially Expressed Peptides (DCIS v IBC)')
+# fig.supylabel('ln(Mean Intensity)')
+# fig.tight_layout()
+
+# plt.savefig(os.path.join(os.path.dirname(DATA_PATH), 'sig_peptide_boxplots.png'))
+# plt.show()
+
+# print(good_peptides)

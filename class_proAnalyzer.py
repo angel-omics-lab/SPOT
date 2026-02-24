@@ -136,13 +136,13 @@ class SpatialProteomicsAnalyzer:
         # Give overall plot name, axis, legend 
         for i, peptide in enumerate(self.good_peptides):
             plot_data = (
-                [{'Intensity': val, 'Class':'DCIS'} for val in [data[region][peptide].mean for region in self.roi_labels if self.roi_labels[region] == 'DCIS' ]]
+                [{'Intensity': val, 'Class':'DCIS'} for val in [data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'DCIS' ]]
                 +
-                [{'Intensity': val, 'Class':'DCIS'} for val in [data[region][peptide].mean for region in self.roi_labels if self.roi_labels[region] == 'IBC' ]]
+                [{'Intensity': val, 'Class':'IBC'} for val in [data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'IBC' ]]
             )
             plot_df = pd.DataFrame(plot_data)
 
-            sns.boxplot(data=plot_df, x='Class', y='Intensity', 
+            sns.boxplot(data=plot_df, x='Class', y='', 
                         hue='Class', palette={'DCIS':'blue', 'IBC':'orange'},
                          ax=axs[i], legend=False
             )
