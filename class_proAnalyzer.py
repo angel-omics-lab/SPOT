@@ -7,6 +7,9 @@ import scipy.stats as stats
 from statsmodels.stats.multitest import multipletests 
 from matplotlib import pyplot as plt
 import os 
+import cv2
+import math
+import seaborn as sns
 
 ''' Example of roi_label format
 roi_labels = {
@@ -79,7 +82,7 @@ class SpatialProteomicsAnalyzer:
         self.good_peptides = zero_counts_per_peptide[zero_counts_per_peptide <= threshold].index.tolist()
 
         print('Peptide filtering complete. Filtered list: ', self.good_peptides)
-        return self.good_peptides
+        return [float(p) for p in self.good_peptides]
     
     
 
@@ -94,7 +97,8 @@ class SpatialProteomicsAnalyzer:
         '''
         data = pd.read_excel(self.data_path, sheet_name=None)
         results_list = []
-        print('Identifying differentially expressed peptides')
+        # Identify significant peptide 
+        print('Identifying differentially expressed peptides...')
         for peptide in self.good_peptides:
             group1 = [data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']     # Mean intensities of peptide in DCIS (class 1) rois
             group2 = [data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'IBC']      # Mean Intensities of peptide in IBC (class 2) rois
@@ -114,28 +118,95 @@ class SpatialProteomicsAnalyzer:
         print('Differential analysis complete. Significant peptides: ', self.good_peptides)
         print(f'{len(reject)} peptides removed: non-significant')
         
-        
+    
+
+    def generate_boxplots(self): 
+        '''
+        Takes the good_peptides list and generates a grid of boxplots where each boxplot compares mean intensities between 2 classes for each peptide. 
+        In this case, the two classes we choose are IBC and DCIS, but this can be changed. 
+        '''
+        data=pd.read_excel(self.data_path, sheet_name=None)
         print('Generating box plots for significant peptides...')
-        fig, axs = plt.subplot(len(self.good_peptides)/5, 5, figsize=(4, 4))        # Grid of box plots
+        n_peptides = len(self.good_peptides)
+        n_cols = 5
+        n_rows = math.ceil(n_peptides/n_cols)
+
+        fig, axs = plt.subplots(n_rows, n_cols, figsize=(n_cols*4, n_rows*4))        # Grid of box plots
+        axs = axs.flatten()     # Flatten so indexing is easier
         # Give overall plot name, axis, legend 
-        for i, peptide in self.good_peptides:
-            x = 
-            y = 
-            axs[i, ].boxplot()
-            axs[i, ].title(f'{peptide}')
-            # Create box plot where each box is median (ln) intensity of class 1 and class 2 (diff by color)
-            # Title each subplot with peptide
-        
-        plt.ylabel('ln(Max intensity)')
-        plt.legend()
-        plt.show()
+        for i, peptide in enumerate(self.good_peptides):
+            plot_data = (
+                [{'Intensity': val, 'Class':'DCIS'} for val in [data[region][peptide].mean for region in self.roi_labels if self.roi_labels[region] == 'DCIS' ]]
+                +
+                [{'Intensity': val, 'Class':'DCIS'} for val in [data[region][peptide].mean for region in self.roi_labels if self.roi_labels[region] == 'IBC' ]]
+            )
+            plot_df = pd.DataFrame(plot_data)
+
+            sns.boxplot(data=plot_df, x='Class', y='Intensity', 
+                        hue='Class', palette={'DCIS':'blue', 'IBC':'orange'},
+                         ax=axs[i], legend=False
+            )
+            axs[i].set_title(peptide)
+
+        # Hide unused subplots
+        for j in range(i+1, len(axs)): axs[j].set_visible(False)
+            
+        # Shared legend
+        labels = [plt.Rectangle((0,0),1,1, color=c) for c in ['blue', 'orange']]
+        fig.legend(labels, ['DCIS', 'IBC'], loc='upper right')
+
+        # Shared title, yaxislabel
+        fig.suptitle('Differentially Expressed Peptides (DCIS v IBC)')
+        fig.supylabel('ln(Mean Intensity)')
+        fig.tight_layout()
+
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'sig_peptide_boxplots.png'))
-
-
+        plt.show()
 
         return self.good_peptides
     
 
+
+
+    def plot_spatial_heatmap(self):
+        '''
+        Generates a spatial heatmap (on the original image) for each peptide based on the centroid of each ROI and mean intensity of each peptide.
+
+        Returns:
+            heatmap_X (png) where X is the peak, makes one for every good_peptide 
+            roi_stats (np array) 
+        '''
+        data = pd.read_excel(self.data_path, sheet_name=None)
+        print('Generating heatmaps for each peptide...')
+        # Calculate spatial centroid of each roi
+            # Concatenate all ROI sheets, tagging each row with its ROI label
+        combined = pd.concat(
+            [df.assign(roi=roi) for roi, df in data.items() if roi in self.roi_labels],
+            ignore_index=True
+        )
+            # Groupby computes centroid AND all peptide means in one pass (vector operation)
+        agg_dict = {'x': 'mean', 'y': 'mean', **{p: 'mean' for p in self.good_peptides}}
+        roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
+        
+        # Generate heatmaps for each peptide
+        for peptide in self.good_peptides:
+            heatmap = plt.figure()
+            plt.scatter(roi_stats['x'], roi_stats['y'], 
+                        c=roi_stats[peptide], cmap='RdBu_r', s=50)
+            plt.colorbar()
+            plt.xlabel(False)
+            plt.ylabel(False)
+            plt.title(peptide)
+            plt.savefig(os.path.join(os.path.dirname(self.data_path), f'heatmap_{peptide}.png'))
+        print('Spatial heatmap generation successful. Saved to: ', os.path.dirname(self.data_path))
+        return roi_stats        
+
+
+    # def make_hierarchical_clusters(self, roi_stats):
+    #     '''
+        
+
+    #     '''
 
             
         
