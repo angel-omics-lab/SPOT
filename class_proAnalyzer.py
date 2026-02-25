@@ -57,15 +57,41 @@ class SpatialProteomicsAnalyzer:
 
 
     
-    def get_roi_map(self): 
-        data = pd.read_excel(self.data_path, sheet_name=None)
-        print('Generating roi map...')
+    def get_roi_map(self):
+        data = pd.read_excel(self.data_path, sheet_name=None) 
+        print('Generating spatial dot plot for regions...')
+        # Calculate spatial centroid of each roi
+            # Concatenate all ROI sheets, tagging each row with its ROI label
         combined = pd.concat(
             [df.assign(roi=roi) for roi, df in data.items() if roi in self.roi_labels],
             ignore_index=True
         )
-        agg_dict = {'x': 'mean', 'y': 'mean', **{r: 'mean' for r in self.roi_labels}}
-        roi_stats = combined.groupby('Class').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'class', 'x', 'y']
+            # Groupby computes centroid (vector operation)
+        agg_dict = {'x': 'mean', 'y': 'mean'}
+        roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
+        roi_stats['class'] = roi_stats['roi'].map(self.roi_labels)
+        roi_stats['roi'] = roi_stats['roi'].str.removeprefix('ROI_')    # remove prefix so label can fit inside dot
+                
+            # Generate colored scatter plot
+        sns.scatterplot(data=roi_stats, x='x', y='y', 
+                        hue='class', palette={'DCIS':'dodgerblue', 'IBC':'orange', 'Normal':'green'},
+                        s=250
+        )
+        for x, y, roi in zip(roi_stats['x'], roi_stats['y'], roi_stats['roi']):
+            plt.text(x, y, str(roi),
+                    ha='center', va='center', 
+                    fontsize=8, color='black')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.tight_layout()
+        plt.xticks([])
+        plt.yticks([])
+        plt.xlabel(None)
+        plt.ylabel(None)
+        plt.title('Spatial ROI Plot')
+
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'roi_map.png'))
+
+        print('Spatial dot plot generation successful. Saved to: ', os.path.dirname(self.data_path))
         
     
 

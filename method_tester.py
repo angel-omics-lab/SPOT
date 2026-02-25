@@ -7,6 +7,8 @@ import os
 import seaborn as sns
 import math 
 
+# plt.rcParams(font='Arial')
+
 DATA_PATH = r'C:\Users\AngelLab\Documents\GitHub\spatial-proteomics-analyzer\fake_data_for_testing.xlsx'
 data = pd.read_excel(DATA_PATH, sheet_name=None)
 
@@ -88,29 +90,29 @@ good_peptides = [758.4519, 797.4264, 976.4517]
 
 
 ###### plot spatial heatmaps ######
-print('Generating heatmaps for each peptide...')
-# Calculate spatial centroid of each roi
-    # Concatenate all ROI sheets, tagging each row with its ROI label
-combined = pd.concat(
-    [df.assign(roi=roi) for roi, df in data.items() if roi in roi_labels],
-    ignore_index=True
-)
-    # Groupby computes centroid AND all peptide means in one pass (vector operation)
-agg_dict = {'x': 'mean', 'y': 'mean', **{p: 'mean' for p in good_peptides}}
-roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
+# print('Generating heatmaps for each peptide...')
+# # Calculate spatial centroid of each roi
+#     # Concatenate all ROI sheets, tagging each row with its ROI label
+# combined = pd.concat(
+#     [df.assign(roi=roi) for roi, df in data.items() if roi in roi_labels],
+#     ignore_index=True
+# )
+#     # Groupby computes centroid AND all peptide means in one pass (vector operation)
+# agg_dict = {'x': 'mean', 'y': 'mean', **{p: 'mean' for p in good_peptides}}
+# roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
         
-# Generate heatmaps for each peptide
-for peptide in good_peptides:
-    heatmap = plt.figure()
-    plt.scatter(roi_stats['x'], roi_stats['y'], 
-                c=roi_stats[peptide], cmap='RdBu_r', s=100)
-    plt.colorbar()
-    plt.xticks([])
-    plt.yticks([])
-    plt.title(peptide, fontsize=16)
-    plt.show()
-print('Spatial heatmap generation successful. Saved to: ', os.path.dirname(DATA_PATH))
-print('ROI stats:', roi_stats)
+# # Generate heatmaps for each peptide
+# for peptide in good_peptides:
+#     heatmap = plt.figure()
+#     plt.scatter(roi_stats['x'], roi_stats['y'], 
+#                 c=roi_stats[peptide], cmap='RdBu_r', s=100)
+#     plt.colorbar()
+#     plt.xticks([])
+#     plt.yticks([])
+#     plt.title(peptide, fontsize=16)
+#     plt.show()
+# print('Spatial heatmap generation successful. Saved to: ', os.path.dirname(DATA_PATH))
+# print('ROI stats:', roi_stats)
 
 
 # ### Generate boxplots 
@@ -155,3 +157,40 @@ print('ROI stats:', roi_stats)
 # plt.show()
 
 # print(good_peptides)
+
+
+##### plot spatial dot plot for region types #####
+print('Generating spatial dot plot for regions...')
+# Calculate spatial centroid of each roi
+    # Concatenate all ROI sheets, tagging each row with its ROI label
+combined = pd.concat(
+    [df.assign(roi=roi) for roi, df in data.items() if roi in roi_labels],
+    ignore_index=True
+)
+    # Groupby computes centroid (vector operation)
+agg_dict = {'x': 'mean', 'y': 'mean'}
+roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
+roi_stats['class'] = roi_stats['roi'].map(roi_labels)
+roi_stats['roi'] = roi_stats['roi'].str.removeprefix('ROI_')    # remove prefix so label can fit inside dot
+        
+    # Generate colored scatter plot
+sns.scatterplot(data=roi_stats, x='x', y='y', 
+                 hue='class', palette={'DCIS':'dodgerblue', 'IBC':'orange', 'Normal':'green'},
+                 s=250
+)
+for x, y, roi in zip(roi_stats['x'], roi_stats['y'], roi_stats['roi']):
+    plt.text(x, y, str(roi),
+             ha='center', va='center', 
+             fontsize=8, color='black')
+plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.tight_layout()
+plt.xticks([])
+plt.yticks([])
+plt.xlabel(None)
+plt.ylabel(None)
+plt.title('Spatial ROI Plot')
+
+plt.show()
+
+print('Spatial dot plot generation successful. Saved to: ', os.path.dirname(DATA_PATH))
+print('ROI stats:', roi_stats)
