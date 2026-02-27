@@ -7,9 +7,10 @@ import scipy.stats as stats
 from statsmodels.stats.multitest import multipletests 
 from matplotlib import pyplot as plt
 import os 
-import cv2
 import math
 import seaborn as sns
+from sklearn.cluster import AgglomerativeClustering
+from scipy.cluster.hierarchy import dendrogram, linkage 
 
 ''' Example of roi_label format
 roi_labels = {
@@ -57,15 +58,41 @@ class SpatialProteomicsAnalyzer:
 
 
     
-    def get_roi_map(self): 
-        data = pd.read_excel(self.data_path, sheet_name=None)
-        print('Generating roi map...')
+    def get_roi_map(self):
+        data = pd.read_excel(self.data_path, sheet_name=None) 
+        print('Generating spatial dot plot for regions...')
+        # Calculate spatial centroid of each roi
+            # Concatenate all ROI sheets, tagging each row with its ROI label
         combined = pd.concat(
             [df.assign(roi=roi) for roi, df in data.items() if roi in self.roi_labels],
             ignore_index=True
         )
-        agg_dict = {'x': 'mean', 'y': 'mean', **{r: 'mean' for r in self.roi_labels}}
-        roi_stats = combined.groupby('Class').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'class', 'x', 'y']
+            # Groupby computes centroid (vector operation)
+        agg_dict = {'x': 'mean', 'y': 'mean'}
+        roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
+        roi_stats['class'] = roi_stats['roi'].map(self.roi_labels)
+        roi_stats['roi'] = roi_stats['roi'].str.removeprefix('ROI_')    # remove prefix so label can fit inside dot
+                
+            # Generate colored scatter plot
+        sns.scatterplot(data=roi_stats, x='x', y='y', 
+                        hue='class', palette={'DCIS':'dodgerblue', 'IBC':'orange', 'Normal':'green'},
+                        s=250
+        )
+        for x, y, roi in zip(roi_stats['x'], roi_stats['y'], roi_stats['roi']):
+            plt.text(x, y, str(roi),
+                    ha='center', va='center', 
+                    fontsize=8, color='black')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.tight_layout()
+        plt.xticks([])
+        plt.yticks([])
+        plt.xlabel(None)
+        plt.ylabel(None)
+        plt.title('Spatial ROI Plot')
+
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'roi_map.png'))
+
+        print('Spatial dot plot generation successful. Saved to: ', os.path.dirname(self.data_path))
         
     
 
@@ -154,7 +181,7 @@ class SpatialProteomicsAnalyzer:
             plot_df = pd.DataFrame(plot_data)
 
             sns.boxplot(data=plot_df, x='Class', y='', 
-                        hue='Class', palette={'DCIS':'blue', 'IBC':'orange'},
+                        hue='Class', palette={'DCIS':'dodgerblue', 'IBC':'orange'},
                          ax=axs[i], legend=False
             )
             axs[i].set_title(peptide)
@@ -163,7 +190,7 @@ class SpatialProteomicsAnalyzer:
         for j in range(i+1, len(axs)): axs[j].set_visible(False)
             
         # Shared legend
-        labels = [plt.Rectangle((0,0),1,1, color=c) for c in ['blue', 'orange']]
+        labels = [plt.Rectangle((0,0),1,1, color=c) for c in ['dodgerblue', 'orange']]
         fig.legend(labels, ['DCIS', 'IBC'], loc='upper right')
 
         # Shared title, yaxislabel
@@ -173,19 +200,16 @@ class SpatialProteomicsAnalyzer:
 
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'sig_peptide_boxplots.png'))
         plt.show()
-
-        return self.good_peptides
     
 
-
-
-    def plot_spatial_heatmap(self):
+    def get_roi_stats(self):
         '''
-        Generates a spatial heatmap (on the original image) for each peptide based on the centroid of each ROI and mean intensity of each peptide.
+        Calculates spatial centroid for each roi and the mean for every peptide in each roi. 
+        Return is used in generate_spatial_heatmap and get_hierarchical_clusters.  
 
         Returns:
-            heatmap_X (png) where X is the peak, makes one for every good_peptide 
-            roi_stats (np array) 
+            roi_stats (np array) contains roi name, spatial centroid (x & y), class, and means for every peptide
+                roi_stats is used as an argument in generate_spatial_heatmap and get_hierarchical_clusters
         '''
         data = pd.read_excel(self.data_path, sheet_name=None)
         print('Generating heatmaps for each peptide...')
@@ -198,8 +222,21 @@ class SpatialProteomicsAnalyzer:
             # Groupby computes centroid AND all peptide means in one pass (vector operation)
         agg_dict = {'x': 'mean', 'y': 'mean', **{p: 'mean' for p in self.good_peptides}}
         roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
-        
-        # Generate heatmaps for each peptide
+        roi_stats['class'] = roi_stats['roi'].map(self.roi_labels)
+
+        return roi_stats
+
+
+    def generate_spatial_heatmap(self, roi_stats):
+        '''
+        Generates a spatial heatmap (on the original image) for each peptide based on the centroid of each ROI and mean intensity of each peptide.
+
+        Returns:
+            heatmap_X (png) where X is the peak, makes one for every good_peptide 
+            roi_stats (np array) 
+        '''
+        print('Generating heatmaps for each peptide...')
+        # Generate heatmaps for each peptide as a scatterplot where color indicates mean intensity
         for peptide in self.good_peptides:
             heatmap = plt.figure()
             plt.scatter(roi_stats['x'], roi_stats['y'], 
@@ -213,11 +250,53 @@ class SpatialProteomicsAnalyzer:
         return roi_stats        
 
 
-    # def make_hierarchical_clusters(self, roi_stats):
-    #     '''
+
+    def make_hierarchical_clusters(self, roi_stats):
+        '''
+        Generates a dendrogram showing hierarchical clusters based on Ward's (+ Euclidean) method. 
+        i.e. ROIs with similar peptide profiles will be clustered together
         
+        Returns:
+            dendrogram (png)
+        '''
+        print('Generating hierarchical clusters...')
+        # Extract peptide intensities per roi 
+        feature_matrix = roi_stats[self.good_peptides].values
+        # Create dendrogram
+        print('Constructing dendrogram for visualization...')
+        linkage_data = linkage(feature_matrix, method='ward', metric='euclidean')
+        dend = dendrogram(linkage_data, labels=roi_stats['roi'].value)
+        ax = plt.gca()
 
-    #     '''
+        # Formatting
+        color_map = {'DCIS': 'dodgerblue', 'IBC': 'orange', 'Normal': 'green'}
+        label_colors = [color_map[c] for c in roi_stats.set_index('roi').loc[roi_stats['roi']]['class']]
+        leaf_order = dend['ivl']  # ROIs in dendrogram order
+        label_colors = [color_map[roi_stats.set_index('roi').loc[roi, 'class']] for roi in leaf_order]
+        ax = plt.gca()
+        for tick, color in zip(ax.get_xticklabels(), label_colors):
+            tick.set_color(color)
+        plt.yticks([])
+        # Create legend
+        class_labels = [plt.Rectangle((0,0),1,1, color=c) for c in ['dodgerblue', 'orange', 'green']]
+        plt.legend(class_labels, ['DCIS', 'IBC', 'Normal'], bbox_to_anchor=(1.05, -0.25), loc= 'lower left')
 
-            
+        plt.title('ROI clusters based on peptide profile similarity')
+        plt.show()
+
+
+
+
+
+    
+##### Entire pipeline ##### 
+    def spralPipeline(self):
+        self.load_and_preprocess()
+        self.get_roi_map()
+        self.compute_peptide_sparsity()
+        self.diff_expression_test()
+        self.generate_boxplots()
+        roi_stats = self.get_roi_stats
+        self.generate_spatial_heatmap(roi_stats)
+        self.make_hierarchical_clusters(roi_stats)
         
