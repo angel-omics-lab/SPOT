@@ -10,7 +10,9 @@ import os
 import math
 import seaborn as sns
 from sklearn.cluster import AgglomerativeClustering
-from scipy.cluster.hierarchy import dendrogram, linkage 
+from scipy.cluster.hierarchy import dendrogram, linkage
+from sklearn.model_selection import train_test_split 
+from sklearn.ensemble import RandomForestClassifier
 
 ''' Example of roi_label format
 roi_labels = {
@@ -282,10 +284,46 @@ class SpatialProteomicsAnalyzer:
         plt.legend(class_labels, ['DCIS', 'IBC', 'Normal'], bbox_to_anchor=(1.05, -0.25), loc= 'lower left')
 
         plt.title('ROI clusters based on peptide profile similarity')
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'dendrogram.png'))
         plt.show()
 
 
-
+    def get_random_forest_ranking(self, roi_stats):
+        '''
+        Runs a random forest classification model for all peptides then outputs a bar plot of peptides with their 'discriminating' score. 
+        
+        Returns
+        random_forest_bar_graph (png)
+        '''
+        print('Generating random forest models per peptide...')
+        oob_list = []
+        # Convert peptides to string so yticks interpreted as categorical
+        good_peptides_str = [str(p) for p in self.good_peptides]
+        roi_stats_str = roi_stats
+        roi_stats_str.columns = [str(c) for c in roi_stats_str.columns]
+        for peptide in good_peptides_str : 
+            X = roi_stats_str[[peptide]]    
+            y = roi_stats_str['class']
+            # Randomly split the dataset so 10% is reserved for model validation 
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+            
+            forest_model = RandomForestClassifier(n_estimators=100, oob_score=True, random_state=42)
+            forest_model.fit(X_train, X_test)
+            oob_list.append(forest_model.oob_score_)
+            
+        # Plot each peptide oob on bar plot
+        print('Constructing oob bar plot...')
+        # Sort them so plot can have them listed as ascending
+        sorted_pairs = sorted(zip(oob_list, good_peptides_str), key=lambda x:x[0])
+        sorted_scores, sorted_peptides = zip(*sorted_pairs)
+        
+        plt.barh(sorted_peptides, sorted_scores, color='mediumorchid')
+        plt.title('Peptide discrimination score in random forest models')
+        plt.xlabel('OOB score')
+        plt.xlim(0,1)
+        print('Saving bar plot to ', self.data_path)
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'forest_barplot.png'))
+        plt.show()
 
 
     
@@ -299,4 +337,4 @@ class SpatialProteomicsAnalyzer:
         roi_stats = self.get_roi_stats
         self.generate_spatial_heatmap(roi_stats)
         self.make_hierarchical_clusters(roi_stats)
-        
+        self.get_random_forest_ranking(roi_stats)
