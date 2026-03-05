@@ -3,9 +3,17 @@
 {
     
     "roi_labels" : [
-        {"roi_1":"DCIS"}, 
-        {"roi_2":"IBC"}, 
-        {"roi_3":"Normal"} 
+        {"ROI_101":"DCIS"}, 
+        {"ROI_102":"DCIS"}, 
+        {"ROI_103":"DCIS"}, 
+        {"ROI_104":"IBC"}, 
+        {"ROI_105":"DCIS"}, 
+        {"ROI_106":"IBC"}, 
+        {"ROI_107":"DCIS"}, 
+        {"ROI_108":"IBC"}, 
+        {"ROI_109":"IBC"}, 
+        {"ROI_110":"IBC"},
+        {"ROI_128":"Normal"}
     ]
 
 }
