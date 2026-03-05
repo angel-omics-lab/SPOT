@@ -1,0 +1,11 @@
+
+
+{
+    
+    "roi_labels" : [
+        {"roi_1":"DCIS"}, 
+        {"roi_2":"IBC"}, 
+        {"roi_3":"Normal"} 
+    ]
+
+}
