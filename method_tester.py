@@ -8,7 +8,10 @@ import os
 import math 
 from scipy.cluster.hierarchy import dendrogram, linkage
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier 
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import scale
+import anndata as ad
+import scanpy as sc
 
 # plt.rcParams(font='Arial')
 
@@ -241,29 +244,71 @@ print(roi_stats)
 #     'min_samples_leaf': [1,2]
 # }
 
-print('Generating random forest models per peptide...')
-oob_list = []
-good_peptides = [str(p) for p in good_peptides]
-roi_stats.columns = [str(c) for c in roi_stats.columns]
-for peptide in good_peptides: 
-    X= roi_stats[[peptide]]         # data
-    y= roi_stats['class']         # labels
-# Randomly split the dataset so 20% is reserved for model validation
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.2, random_state=42)
+# print('Generating random forest models per peptide...')
+# oob_list = []
+# good_peptides = [str(p) for p in good_peptides]
+# roi_stats.columns = [str(c) for c in roi_stats.columns]
+# for peptide in good_peptides: 
+#     X= roi_stats[[peptide]]         # data
+#     y= roi_stats['class']         # labels
+# # Randomly split the dataset so 20% is reserved for model validation
+#     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.2, random_state=42)
 
-    forest_model = RandomForestClassifier(n_estimators=100, oob_score=True, random_state=42) 
-    forest_model.fit(X_train, y_train)
-    oob_list.append(round(forest_model.oob_score_, 3))
+#     forest_model = RandomForestClassifier(n_estimators=100, oob_score=True, random_state=42) 
+#     forest_model.fit(X_train, y_train)
+#     oob_list.append(round(forest_model.oob_score_, 3))
 
-# Plot each peptide oob on bar plot
-print('Constructing bar plot with each peptide oob score...')
-    # Sort them so they will be in ascending order in the plot
-sorted_pairs = sorted(zip(oob_list, good_peptides), key=lambda x: x[0])
-sorted_scores, sorted_peptides = zip(*sorted_pairs)
-plt.barh(sorted_peptides, sorted_scores, color='mediumorchid')
+# # Plot each peptide oob on bar plot
+# print('Constructing bar plot with each peptide oob score...')
+#     # Sort them so they will be in ascending order in the plot
+# sorted_pairs = sorted(zip(oob_list, good_peptides), key=lambda x: x[0])
+# sorted_scores, sorted_peptides = zip(*sorted_pairs)
+# plt.barh(sorted_peptides, sorted_scores, color='mediumorchid')
 
-plt.title('Peptides ranked by out-of-bag score in a random forest model')
-plt.ylabel('Peptide')
-plt.xlabel('OOB score')
-plt.xlim(0,1)
-plt.show()
+# plt.title('Peptides ranked by out-of-bag score in a random forest model')
+# plt.ylabel('Peptide')
+# plt.xlabel('OOB score')
+# plt.xlim(0,1)
+# plt.show()
+
+########### pixel-level analysis ##############
+print('Constructing anndata object...')
+
+data_filtered = data[data['ROI'].isin(roi_labels.keys())]
+
+combined_intensities = data_filtered[good_peptides].values.astype(float)
+combined_intensities = scale(combined_intensities)      # z-score scale intentities so peptide contributions are equalized for PCA
+
+pixel_metadata =  pd.DataFrame({
+    'sample': data_filtered['ROI'].values,
+    'class': data_filtered['ROI'].map(roi_labels).values, 
+    'x': data_filtered['x'].values.astype(float),
+    'y': data_filtered['y'].values.astype(float), 
+    })
+           
+peptide_metadata = pd.DataFrame(
+    {'peptide' : good_peptides}, 
+    index=good_peptides
+)          
+
+# Anndata object (observations x variables) created -- this is the assumed format for scanpy function arguments
+ann_obj = ad.AnnData(
+    X = combined_intensities,   # shape: (n_pixels, n_peptides)
+    obs = pixel_metadata,       # df w columns: sample, group, x, y (one row per pixel)
+    var = peptide_metadata      # df with peptide names as index (one row per peptide)--just column titles
+)
+
+NUM_PC = 5      # Number of principal components to search for in pca and passed to nearest neighbor graph 
+# NOTE should use some sort of heuristic here rather than a constant integer
+
+print('Running PCA...')
+sc.pp.pca(ann_obj, n_comps = NUM_PC)     # preprocess data for pca, n_comps give number of PCs to look for
+
+print('Running UMAP analysis...')
+sc.pp.neighbors(ann_obj, use_rep='X_pca', n_pcs=NUM_PC)       # generate nearest neighbor graph needed for umap
+sc.tl.umap(ann_obj)    
+
+# Do actual plotting
+print('Generating PCA and UMAP figures...')
+sc.pl.pca(ann_obj, color='group')
+sc.pl.umap(ann_obj, color='group')

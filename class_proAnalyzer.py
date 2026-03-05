@@ -305,7 +305,7 @@ class SpatialProteomicsAnalyzer:
             X = roi_stats_str[[peptide]]    
             y = roi_stats_str['class']
             # Randomly split the dataset so 10% is reserved for model validation 
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
             
             forest_model = RandomForestClassifier(n_estimators=100, oob_score=True, random_state=42)
             forest_model.fit(X_train, X_test)
@@ -326,6 +326,21 @@ class SpatialProteomicsAnalyzer:
         plt.show()
 
 
+    def create_anndata_object(self):
+        '''
+        Creates an Anndata object containing a pixel-based expression matrix (rows are peptides and columns are the pixel coordinates) and 
+        metadata per column with each column/pixel's sample id, roi, and class. This object is used in pca and umap analysis. 
+        
+        Returns: 
+        ann_obj (Anndata object), contains pixel_expr_mat and colData
+        
+        '''
+        # Create 
+        ann_obj = []
+        
+        return ann_obj
+
+
     
 ##### Entire pipeline ##### 
     def spralPipeline(self):
@@ -338,3 +353,5 @@ class SpatialProteomicsAnalyzer:
         self.generate_spatial_heatmap(roi_stats)
         self.make_hierarchical_clusters(roi_stats)
         self.get_random_forest_ranking(roi_stats)
+        ann_obj = self.create_anndata_object()
+        
