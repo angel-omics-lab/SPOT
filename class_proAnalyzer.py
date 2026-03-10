@@ -16,6 +16,9 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import scale
 import anndata as ad 
 import scanpy as sc
+from scipy.spatial.distance import cdist
+from scipy.sparse.csgraph import minimum_spanning_tree
+import networkx as nx
 
 ''' Example of roi_label format
 roi_labels = {
@@ -31,8 +34,14 @@ class SpatialProteomicsAnalyzer:
     def __init__(self, data_path, roi_labels):
         self.data_path = data_path
         self.roi_labels = roi_labels        # Contains sheet name of each ROI and its label     # NOTE update it so it is reading through a json
-        self.data = pd.read_excel(data_path, sheet_name=None)
         self.good_peptides = None
+        self.ann_obj = None
+        try: 
+            self.data = pd.read_excel(data_path, sheet_name=None)
+        except FileNotFoundError as e:
+            print('Issue loading spreadsheet, check passed file path')
+            print(e)
+        
         
     def load_and_preprocess(self):
         '''
@@ -372,16 +381,16 @@ class SpatialProteomicsAnalyzer:
             index=[str(p) for p in self.good_peptides]
         )
         
-        ann_obj = ad.AnnData(
+        self.ann_obj = ad.AnnData(
             X = combined_intensities,   # (n_pixels, n_peptides)
             obs = pixel_metadata,       # one row per pixel
             var = peptide_metadata      # one row per peptide
         )
         
-        print('AnnData object created successfully. Shape:', ann_obj.shape)
-        return ann_obj
+        print('AnnData object created successfully. Shape:', self.ann_obj.shape)
     
-    def run_pixel_analysis(self, ann_obj):
+    
+    def run_pixel_analysis(self):
         '''
         Runs PCA and UMAP on a pixel-level AnnData object then saves the resulting plots, colored by class label. 
         We use scanpy rather than sklearn because it saves computational time when identifying num of PCs to retain. 
@@ -391,36 +400,89 @@ class SpatialProteomicsAnalyzer:
         
         Returns:
             ann_obj (AnnData): updated with PCA and UMAP embeddings
+            Not returned, but saves both pca and umap plots
         '''
         # Calculate number of components to retain for PCA with Explained Variance Threshold heuristic
         print('Calculating optimal number of PCA components...')
-        max_comps = min(ann_obj.n_obs, ann_obj.n_vars) - 1
-        sc.pp.pca(ann_obj, n_comps=max_comps)       # Run pca with max comps
-        cumsum = np.cumsum(ann_obj.uns['pca']['variance_ratio'])
+        max_comps = min(self.ann_obj.n_obs, self.ann_obj.n_vars) - 1
+        sc.pp.pca(self.ann_obj, n_comps=max_comps)       # Run pca with max comps
+        cumsum = np.cumsum(self.ann_obj.uns['pca']['variance_ratio'])
         
         n_comps = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
         print(f'Retaining {n_comps} principal components (explain >= 95% of variance)')
         
         print('Running PCA...') 
-        sc.pp.pca(ann_obj, n_comps=n_comps)
+        sc.pp.pca(self.ann_obj, n_comps=n_comps)
         
         print('Running UMAP analysis...')
-        sc.pp.neighbors(ann_obj, use_rep='X_pca', n_pcs=n_comps)
-        sc.tl.umap(ann_obj)
+        sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=n_comps)
+        sc.tl.umap(self.ann_obj)
         
         print('Generating PCA and UMAP figures...')
-        sc.pl.pca(ann_obj, color='class', 
+        sc.pl.pca(self.ann_obj, color='class', 
                   save=os.path.join(os.path.dirname(self.data_path), 'pca.png'))
-        sc.pl.umap(ann_obj, color='class', 
+        sc.pl.umap(self.ann_obj, color='class', 
                   save=os.path.join(os.path.dirname(self.data_path), 'umap.png'))
         print('Figures saved to ', self.data_path)
+
+    
+    def compute_mst(self):
+        '''
+        Generates a minimum spanning tree (MST) connecting ROI centroids in PCA space. 
+        It is used as the 'backbone' of TSCAN and is overlaid on the UMAP generated from it. 
         
-        return ann_obj
+        Args:
+            ann_obj (AnnData) : output of run_pixel_analysis(), is original ann_obj with added X_pca and X_umap in obs 
+        
+        Returns: 
+            ann_obj (AnnData) : updated with MST stored in ann_obj.uns['mst']
+                uns['mst']['graph'] -- networkx graph of MST
+                uns['mst']['centroids_pca'] -- df, ROI centroids in PCA space
+        '''
+        if self.ann_obj is None:
+            raise RuntimeError('ann_obj is empty. Run create_anndata_object() and run_pixel_analysis() first')
+        
+        print('Computing MST...')
+        # Compute roi centroids in pca space
+        n_comps = self.ann_obj.obsm['X_pca'].shape[1]
+        pca_df = pd.DataFrame(
+            self.ann_obj.obsm['X_pca'], 
+            index = self.ann_obj.obs_names, 
+            columns=[f'PC{i+1}' for i in range(n_comps)]
+        )
+        pca_df['sample']=self.ann_obj.obs['sample'].values
+        centroids_pca = pca_df.groupby('sample').mean()
+        
+        # Build mst on centroids
+        dist_matrix = cdist(centroids_pca.values, centroids_pca.values, metric='euclidean')     # Gets Eucl. distance between every ROI centroid pair in PCA space
+        mst_sparse = minimum_spanning_tree(dist_matrix)         # Actual MST algorithm -- finding edge subset that minimizes total distance, outputs sparse matrix identifying those edges
+        
+        graph = nx.from_scipy_sparse_array(mst_sparse)      # Converts sparse matrix into graph object 
+        roi_names = list(centroids_pca.index)
+        mst_graph = nx.relabel_nodes(graph, {i: name for i, name in enumerate(roi_names)})      # Swaps default node names for actual ROIs
+        
+        print(f'MST built with {mst_graph.number_of_nodes()} nodes and {mst_graph.number_of_edges()} edges')
+        
+        # Add MST data to ann_obj
+        self.ann_obj.uns['mst'] = {
+            'graph': mst_graph, 
+            'centroids' : centroids_pca
+        }
+            
+    def run_pseudotime_tscan(self):
+        '''
+        Runs TSCAN pseudotime analysis using MST for trajectory. 
+        
+        '''
+
+    def run_pseudotime_slingshot(self):
+        '''
+        Runs Slingshot pseudotime analysis. 
+        
+        '''        
+         
     
     
-    def run_pseudotime(self): 
-    
-    def generate_mst(self):
         
     
     
@@ -435,6 +497,9 @@ class SpatialProteomicsAnalyzer:
         self.generate_spatial_heatmap(roi_stats)
         self.make_hierarchical_clusters(roi_stats)
         self.get_random_forest_ranking(roi_stats)
-        ann_obj = self.create_anndata_object()
-        self.run_pixel_analysis(ann_obj)
+        self.create_anndata_object()
+        self.run_pixel_analysis()
+        self.compute_mst()
+        self.run_pseudotime_tscan()
+        self.run_pseudotime_slingshot()
         
