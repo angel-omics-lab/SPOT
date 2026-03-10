@@ -384,6 +384,7 @@ class SpatialProteomicsAnalyzer:
     def run_pixel_analysis(self, ann_obj):
         '''
         Runs PCA and UMAP on a pixel-level AnnData object then saves the resulting plots, colored by class label. 
+        We use scanpy rather than sklearn because it saves computational time when identifying num of PCs to retain. 
         
         Args:
             ann_obj (AnnData): output of create_anndata_object()
@@ -391,13 +392,20 @@ class SpatialProteomicsAnalyzer:
         Returns:
             ann_obj (AnnData): updated with PCA and UMAP embeddings
         '''
-        print('Running PCA...')
-        # Calculate number of components to retain for PCA with Explained Variance Threshold heuristic 
-        n_pcs = 1 
-        sc.pp.pca(ann_obj, n_comps=n_pcs)
+        # Calculate number of components to retain for PCA with Explained Variance Threshold heuristic
+        print('Calculating optimal number of PCA components...')
+        max_comps = min(ann_obj.n_obs, ann_obj.n_vars) - 1
+        sc.pp.pca(ann_obj, n_comps=max_comps)       # Run pca with max comps
+        cumsum = np.cumsum(ann_obj.uns['pca']['variance_ratio'])
+        
+        n_comps = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
+        print(f'Retaining {n_comps} principal components (explain >= 95% of variance)')
+        
+        print('Running PCA...') 
+        sc.pp.pca(ann_obj, n_comps=n_comps)
         
         print('Running UMAP analysis...')
-        sc.pp.neighbors(ann_obj, use_rep='X_pca', n_pcs=n_pcs)
+        sc.pp.neighbors(ann_obj, use_rep='X_pca', n_pcs=n_comps)
         sc.tl.umap(ann_obj)
         
         print('Generating PCA and UMAP figures...')
@@ -410,8 +418,14 @@ class SpatialProteomicsAnalyzer:
         return ann_obj
     
     
+    def run_pseudotime(self): 
+    
+    def generate_mst(self):
+        
+    
+    
 ##### Entire pipeline ##### 
-    def spralPipeline(self):
+    def allPipeline(self):
         self.load_and_preprocess()
         self.get_roi_map()
         self.compute_peptide_sparsity()
