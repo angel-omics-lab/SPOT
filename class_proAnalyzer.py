@@ -27,8 +27,8 @@ roi_labels = {
 class SpatialProteomicsAnalyzer:
     def __init__(self, data_path, roi_labels):
         self.data_path = data_path
-        self.roi_labels = roi_labels        # Contains sheet name of each ROI and its label
-        # self.full_data = None
+        self.roi_labels = roi_labels        # Contains sheet name of each ROI and its label     # NOTE update it so it is reading through a json
+        self.data = pd.read_excel(data_path, sheet_name=None)
         self.good_peptides = None
         
     def load_and_preprocess(self):
@@ -39,8 +39,9 @@ class SpatialProteomicsAnalyzer:
             None, but roi_labels (dict) is updated from filtering. And intensities are normalized. 
         '''
         print('Filtering ROIs...')
+        to_remove = []
         for region, label in self.roi_labels.items():
-            data = pd.read_excel(self.data_path, sheet_name=region)
+            data = self.data[region]
             intensities = data.iloc[:, 4:]      # Skip first 4 columns 
             print(f'Processing {region}...')
             intensities = intensities.fillna(0)        # Change all NaN values to 0 
@@ -48,25 +49,32 @@ class SpatialProteomicsAnalyzer:
             total = intensities.shape[0]*data.shape[1]     # Total number of intensities
             
             if zeros > (0.25*total):       # Remove ROI from list if >25% of peptides are 0 
-                del self.roi_labels[region]
+                to_remove.append(region)
                 print(f'Removed {region} with {label} label from list: >25% zero intensities.')
             else: 
                 print(f'{region} accepted')
                 print(f'Normalizing intensities in {region}')
                 data.iloc[:, 4:] = np.log(data.iloc[:, 4:])  # Natural log intensities
-                ### NOTE save normalized intensities somewhere?? 
+                ### NOTE save normalized intensities somewhere??
+        for region in to_remove:
+            del self.roi_labels[region] 
         print('ROI filtering complete. Filtered list: ', self.roi_labels.keys())
         return self.roi_labels
 
 
     
     def get_roi_map(self):
-        data = pd.read_excel(self.data_path, sheet_name=None) 
+        '''
+        Creates a spatial dot plot of the ROIs where each dot is the location of the ROIs spatial centroid. 
+        Dots are colored according to their class. 
+        NOTE potential ~upgrade~ is to have the dots overlay a picture of the tissue, This would require cv2 AND for user to pass a png/jpeg
+        
+        ''' 
         print('Generating spatial dot plot for regions...')
         # Calculate spatial centroid of each roi
             # Concatenate all ROI sheets, tagging each row with its ROI label
         combined = pd.concat(
-            [df.assign(roi=roi) for roi, df in data.items() if roi in self.roi_labels],
+            [df.assign(roi=roi) for roi, df in self.data.items() if roi in self.roi_labels],
             ignore_index=True
         )
             # Groupby computes centroid (vector operation)
@@ -77,7 +85,7 @@ class SpatialProteomicsAnalyzer:
                 
             # Generate colored scatter plot
         sns.scatterplot(data=roi_stats, x='x', y='y', 
-                        hue='class', palette={'DCIS':'dodgerblue', 'IBC':'orange', 'Normal':'green'},
+                        hue='class', palette={'DCIS':'dodgerblue', 'IBC':'orange', 'Normal':'green'},       ## NOTE would need to change to allow passed classes
                         s=250
         )
         for x, y, roi in zip(roi_stats['x'], roi_stats['y'], roi_stats['roi']):
@@ -100,22 +108,27 @@ class SpatialProteomicsAnalyzer:
 
     def compute_peptide_sparsity(self): 
         '''
-        Calculate which peptides are expressed across all ROIs, then remove those that arent. 
+        Removes peptides only sparsely expressed across ROIs. Those with <20% expression in >10% of ROIs are removed. 
 
         Returns: 
-            good_peptides(list): list of all peptides that are expressed across ROIs. 
+            None, but updates good_peptides(list): list of all peptides that are well expressed across ROIs. 
         '''
         
         print('Filtering peptides...')
-        peptide_list = [758.4519, 797.4264, 976.4517]       ## NOTE need to update this
-        roi_data = {region: pd.read_excel(self.data_path, sheet_name=region).iloc[:, 4] for region in self.roi_labels}       # Read all ROIs into a dict
-        all_data = pd.concat(roi_data, names=['ROI', 'sample'])     # Stack all ROI data with ROI labels
-        zero_counts_per_peptide = pd.Series(dtype=int) 
-
+        # peptide_list = self.data[region].columns[4:]
+        # Get union of all peptide columns across ROIs (handles ROIs w different peptides)       
+        all_peptides = set()    
         for region in self.roi_labels:
-            intensities = pd.read_excel(self.data_path, sheet_name=region).iloc[:, 4:]
-            zero_pct = (intensities==0).mean()      # Percentage of 0 intensities for each peptide
-            zero_counts_per_peptide = zero_counts_per_peptide.add((zero_pct > 0.20).astype(int), fill_value=0)      # Label peptide for region with 0 if > 20% of values are 0 
+            all_peptides.update(self.data[region].columns[4:])            
+        
+        zero_counts_per_peptide = pd.Series(0, index=list(all_peptides))
+        
+        for region in self.roi_labels:
+            intensities = self.data[region].iloc[:, 4:]     # Grabs peptide columns for the roi
+            zero_pct = (intensities==0).mean()      # Calculate percentage of 0 intensities for each peptide
+            # Identify peptides as T/F based on zero_pct, and aligns Series to full peptide index (allows for peptides existing in some ROIs but not others)
+            flagged = (zero_pct > 0.2).reindex(zero_counts_per_peptide.index, fill_value=0)     
+            zero_counts_per_peptide = zero_counts_per_peptide.add(flagged.astype(int))      # Tells how many ROIs found each peptide to be too sparse, used by threshold
 
         # Keep peptides that are present in >= 10% ROIs 
         threshold = len(self.roi_labels)*0.10       
@@ -135,13 +148,13 @@ class SpatialProteomicsAnalyzer:
         Returns:
             good_peptides(list) updated so it is now only those differentially expressed.
         '''
-        data = pd.read_excel(self.data_path, sheet_name=None)
         results_list = []
         # Identify significant peptide 
         print('Identifying differentially expressed peptides...')
         for peptide in self.good_peptides:
-            group1 = [data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']     # Mean intensities of peptide in DCIS (class 1) rois
-            group2 = [data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'IBC']      # Mean Intensities of peptide in IBC (class 2) rois
+            # NOTE would need to update 'DCIS' and 'IBC' to allow for uniquely passed classes
+            group1 = [self.data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']     # Mean intensities of peptide in DCIS (class 1) rois        
+            group2 = [self.data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'IBC']      # Mean Intensities of peptide in IBC (class 2) rois
             # Run KW
             H_statistic, p_value = stats.kruskal(group1, group2)
             # Add to data frame 
@@ -213,12 +226,11 @@ class SpatialProteomicsAnalyzer:
             roi_stats (np array) contains roi name, spatial centroid (x & y), class, and means for every peptide
                 roi_stats is used as an argument in generate_spatial_heatmap and get_hierarchical_clusters
         '''
-        data = pd.read_excel(self.data_path, sheet_name=None)
         print('Generating heatmaps for each peptide...')
         # Calculate spatial centroid of each roi
             # Concatenate all ROI sheets, tagging each row with its ROI label
         combined = pd.concat(
-            [df.assign(roi=roi) for roi, df in data.items() if roi in self.roi_labels],
+            [df.assign(roi=roi) for roi, df in self.data.items() if roi in self.roi_labels],
             ignore_index=True
         )
             # Groupby computes centroid AND all peptide means in one pass (vector operation)
@@ -267,9 +279,9 @@ class SpatialProteomicsAnalyzer:
         # Create dendrogram
         print('Constructing dendrogram for visualization...')
         linkage_data = linkage(feature_matrix, method='ward', metric='euclidean')
-        dend = dendrogram(linkage_data, labels=roi_stats['roi'].value)
+        dend = dendrogram(linkage_data, labels=roi_stats['roi'].values)
         ax = plt.gca()
-
+ 
         # Formatting
         color_map = {'DCIS': 'dodgerblue', 'IBC': 'orange', 'Normal': 'green'}
         label_colors = [color_map[c] for c in roi_stats.set_index('roi').loc[roi_stats['roi']]['class']]
@@ -308,7 +320,7 @@ class SpatialProteomicsAnalyzer:
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
             
             forest_model = RandomForestClassifier(n_estimators=100, oob_score=True, random_state=42)
-            forest_model.fit(X_train, X_test)
+            forest_model.fit(X_train, y_train)
             oob_list.append(forest_model.oob_score_)
             
         # Plot each peptide oob on bar plot
@@ -349,7 +361,7 @@ class SpatialProteomicsAnalyzer:
         self.compute_peptide_sparsity()
         self.diff_expression_test()
         self.generate_boxplots()
-        roi_stats = self.get_roi_stats
+        roi_stats = self.get_roi_stats()
         self.generate_spatial_heatmap(roi_stats)
         self.make_hierarchical_clusters(roi_stats)
         self.get_random_forest_ranking(roi_stats)
