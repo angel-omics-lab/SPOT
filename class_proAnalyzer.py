@@ -13,6 +13,8 @@ from sklearn.cluster import AgglomerativeClustering
 from scipy.cluster.hierarchy import dendrogram, linkage
 from sklearn.model_selection import train_test_split 
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import scale
+import anndata as ad 
 
 ''' Example of roi_label format
 roi_labels = {
@@ -340,17 +342,44 @@ class SpatialProteomicsAnalyzer:
 
     def create_anndata_object(self):
         '''
-        Creates an Anndata object containing a pixel-based expression matrix (rows are peptides and columns are the pixel coordinates) and 
-        metadata per column with each column/pixel's sample id, roi, and class. This object is used in pca and umap analysis. 
+        Creates an AnnData object for pixel-level analysis. Concatenates all accepted ROI sheets, filters to good_peptides, z-score scales intensities, 
+        and attached per-pixel metadata (ROI, class, x-coord, y-coord). This object is used as the input for PCA and UMAP analysis. 
         
         Returns: 
-        ann_obj (Anndata object), contains pixel_expr_mat and colData
+            ann_obj (AnnData): shape (n_pixels, n_peptides), with obs metadata and var peptide index.
         
         '''
-        # Create 
-        ann_obj = []
+        print('Constructing AnnData object...')
+        # Concat ROI sheets into a single flat df
+        combined = pd.concat([df.assign(ROI=roi) for roi, df in self.data.items() in self.roi_labels], ignore_index=True)
         
+        # Extract and scale peptide intensity matrix 
+        combined_intensities = combined[self.good_peptides].values.astype(float)
+        combined_intensities = scale(combined_intensities)      # z-score so peptides contribute equally to PCA
+        
+        # Build per-pixel metadata (obs)
+        pixel_metadata = pd.DataFrame({
+            'sample': combined['ROI'].values, 
+            'class': combined['ROI'].map(self.roi_labels).values, 
+            'x': combined['x'].values.astype(float),
+            'y': combined['y'].values.astype(float)
+        })
+        
+        # Build per-peptide metadata (var)
+        peptide_metadata = pd.DataFrame(
+            {'peptide':self.good_peptides}, 
+            index=[str(p) for p in self.good_peptides]
+        )
+        
+        ann_obj = ad.AnnData(
+            X = combined_intensities,   # (n_pixels, n_peptides)
+            obs = pixel_metadata,       # one row per pixel
+            var = peptide_metadata      # one row per peptide
+        )
+        
+        print('AnnData object created successfully. Shape:', ann_obj.shape)
         return ann_obj
+    
 
 
     
