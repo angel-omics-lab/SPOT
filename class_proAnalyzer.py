@@ -15,6 +15,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import scale
 import anndata as ad 
+import scanpy as sc
 
 ''' Example of roi_label format
 roi_labels = {
@@ -380,8 +381,34 @@ class SpatialProteomicsAnalyzer:
         print('AnnData object created successfully. Shape:', ann_obj.shape)
         return ann_obj
     
-
-
+    def run_pixel_analysis(self, ann_obj):
+        '''
+        Runs PCA and UMAP on a pixel-level AnnData object then saves the resulting plots, colored by class label. 
+        
+        Args:
+            ann_obj (AnnData): output of create_anndata_object()
+        
+        Returns:
+            ann_obj (AnnData): updated with PCA and UMAP embeddings
+        '''
+        print('Running PCA...')
+        # Calculate number of components to retain for PCA with Explained Variance Threshold heuristic 
+        n_pcs = 1 
+        sc.pp.pca(ann_obj, n_comps=n_pcs)
+        
+        print('Running UMAP analysis...')
+        sc.pp.neighbors(ann_obj, use_rep='X_pca', n_pcs=n_pcs)
+        sc.tl.umap(ann_obj)
+        
+        print('Generating PCA and UMAP figures...')
+        sc.pl.pca(ann_obj, color='class', 
+                  save=os.path.join(os.path.dirname(self.data_path), 'pca.png'))
+        sc.pl.umap(ann_obj, color='class', 
+                  save=os.path.join(os.path.dirname(self.data_path), 'umap.png'))
+        print('Figures saved to ', self.data_path)
+        
+        return ann_obj
+    
     
 ##### Entire pipeline ##### 
     def spralPipeline(self):
@@ -395,4 +422,5 @@ class SpatialProteomicsAnalyzer:
         self.make_hierarchical_clusters(roi_stats)
         self.get_random_forest_ranking(roi_stats)
         ann_obj = self.create_anndata_object()
+        self.run_pixel_analysis(ann_obj)
         
