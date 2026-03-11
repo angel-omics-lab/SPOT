@@ -1,16 +1,22 @@
 import pandas as pd 
 import numpy as np 
 import scipy.stats as stats
-from statsmodels.stats.multitest import multipletests 
+#from statsmodels.stats.multitest import multipletests 
 from matplotlib import pyplot as plt
 import os
-import seaborn as sns
+#import seaborn as sns
 import math 
-from scipy.cluster.hierarchy import dendrogram, linkage 
+from scipy.cluster.hierarchy import dendrogram, linkage
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import scale
+import anndata as ad
+import scanpy as sc
 
 # plt.rcParams(font='Arial')
 
-DATA_PATH = r'C:\Users\AngelLab\Documents\GitHub\spatial-proteomics-analyzer\fake_data_for_testing.xlsx'
+#DATA_PATH = r'C:\Users\AngelLab\Documents\GitHub\spatial-proteomics-analyzer\fake_data_for_testing.xlsx'
+DATA_PATH = '/Users/bryngerding/Documents/GitHub/spatial-proteomics-analyzer/fake_data_for_testing.xlsx'
 data = pd.read_excel(DATA_PATH, sheet_name=None)
 
 roi_labels = {
@@ -104,7 +110,7 @@ agg_dict = {'x': 'mean', 'y': 'mean', **{p: 'mean' for p in good_peptides}}
 roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
 roi_stats['class'] = roi_stats['roi'].map(roi_labels)
 print(roi_stats)
-print(roi_stats.dtype())
+#print(roi_stats.dtypes())
         
 # # Generate heatmaps for each peptide
 # for peptide in good_peptides:
@@ -200,29 +206,109 @@ print(roi_stats.dtype())
 # print('ROI stats:', roi_stats)
 
 
-plt.rcParams['axes.prop_cycle'] = plt.cycler(color=['mediumorchid', 'lightcoral', 'lightblue'])
-print('Generating hierarchical clusters...')
-# Reorder roi_stats based on class so they can be colored properly in the dendrogram
-roi_stats = roi_stats.sort_values('class')
-# Extract peptide intensities per roi 
-feature_matrix = roi_stats[good_peptides].values
-# Create dendrogram
-print('Constructing dendrogram for visualization...')
-linkage_data = linkage(feature_matrix, method='ward', metric='euclidean')
-dend = dendrogram(linkage_data, labels=roi_stats['roi'].values, leaf_rotation=90)
+# plt.rcParams['axes.prop_cycle'] = plt.cycler(color=['mediumorchid', 'lightcoral', 'lightblue'])
+# print('Generating hierarchical clusters...')
+# # Reorder roi_stats based on class so they can be colored properly in the dendrogram
+# roi_stats = roi_stats.sort_values('class')
+# # Extract peptide intensities per roi 
+# feature_matrix = roi_stats[good_peptides].values
+# # Create dendrogram
+# print('Constructing dendrogram for visualization...')
+# linkage_data = linkage(feature_matrix, method='ward', metric='euclidean')
+# dend = dendrogram(linkage_data, labels=roi_stats['roi'].values, leaf_rotation=90)
 
-# Formatting
-color_map = {'DCIS': 'dodgerblue', 'IBC': 'orange', 'Normal': 'green'}
-label_colors = [color_map[c] for c in roi_stats.set_index('roi').loc[roi_stats['roi']]['class']]
-leaf_order = dend['ivl']  # ROIs in dendrogram order
-label_colors = [color_map[roi_stats.set_index('roi').loc[roi, 'class']] for roi in leaf_order]
-ax = plt.gca()
-for tick, color in zip(ax.get_xticklabels(), label_colors):
-    tick.set_color(color)
-plt.yticks([])
-# Create legend
-class_labels = [plt.Rectangle((0,0),1,1, color=c) for c in ['dodgerblue', 'orange', 'green']]
-plt.legend(class_labels, ['DCIS', 'IBC', 'Normal'], bbox_to_anchor=(1.05, -0.25), loc= 'lower left')
+# # Formatting
+# color_map = {'DCIS': 'dodgerblue', 'IBC': 'orange', 'Normal': 'green'}
+# label_colors = [color_map[c] for c in roi_stats.set_index('roi').loc[roi_stats['roi']]['class']]
+# leaf_order = dend['ivl']  # ROIs in dendrogram order
+# label_colors = [color_map[roi_stats.set_index('roi').loc[roi, 'class']] for roi in leaf_order]
+# ax = plt.gca()
+# for tick, color in zip(ax.get_xticklabels(), label_colors):
+#     tick.set_color(color)
+# plt.yticks([])
+# # Create legend
+# class_labels = [plt.Rectangle((0,0),1,1, color=c) for c in ['dodgerblue', 'orange', 'green']]
+# plt.legend(class_labels, ['DCIS', 'IBC', 'Normal'], bbox_to_anchor=(1.05, -0.25), loc= 'lower left')
 
-plt.title('ROI clusters based on peptide profile similarity')
-plt.show()
+# plt.title('ROI clusters based on peptide profile similarity')
+# plt.show()
+
+
+
+#### random forest plotting 
+# param_grid = {
+#     'n_estimators':[100],
+#     'max_feature':['sqrt', 'log2', None],
+#     'max_depth':[None, 5, 10, 20], 
+#     'min_samples_split': [2,5],
+#     'min_samples_leaf': [1,2]
+# }
+
+# print('Generating random forest models per peptide...')
+# oob_list = []
+# good_peptides = [str(p) for p in good_peptides]
+# roi_stats.columns = [str(c) for c in roi_stats.columns]
+# for peptide in good_peptides: 
+#     X= roi_stats[[peptide]]         # data
+#     y= roi_stats['class']         # labels
+# # Randomly split the dataset so 20% is reserved for model validation
+#     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.2, random_state=42)
+
+#     forest_model = RandomForestClassifier(n_estimators=100, oob_score=True, random_state=42) 
+#     forest_model.fit(X_train, y_train)
+#     oob_list.append(round(forest_model.oob_score_, 3))
+
+# # Plot each peptide oob on bar plot
+# print('Constructing bar plot with each peptide oob score...')
+#     # Sort them so they will be in ascending order in the plot
+# sorted_pairs = sorted(zip(oob_list, good_peptides), key=lambda x: x[0])
+# sorted_scores, sorted_peptides = zip(*sorted_pairs)
+# plt.barh(sorted_peptides, sorted_scores, color='mediumorchid')
+
+# plt.title('Peptides ranked by out-of-bag score in a random forest model')
+# plt.ylabel('Peptide')
+# plt.xlabel('OOB score')
+# plt.xlim(0,1)
+# plt.show()
+
+########### pixel-level analysis ##############
+print('Constructing anndata object...')
+
+data_filtered = data[data['ROI'].isin(roi_labels.keys())]
+
+combined_intensities = data_filtered[good_peptides].values.astype(float)
+combined_intensities = scale(combined_intensities)      # z-score scale intentities so peptide contributions are equalized for PCA
+
+pixel_metadata =  pd.DataFrame({
+    'sample': data_filtered['ROI'].values,
+    'class': data_filtered['ROI'].map(roi_labels).values, 
+    'x': data_filtered['x'].values.astype(float),
+    'y': data_filtered['y'].values.astype(float), 
+    })
+           
+peptide_metadata = pd.DataFrame(
+    {'peptide' : good_peptides}, 
+    index=good_peptides
+)          
+
+# Anndata object (observations x variables) created -- this is the assumed format for scanpy function arguments
+ann_obj = ad.AnnData(
+    X = combined_intensities,   # shape: (n_pixels, n_peptides)
+    obs = pixel_metadata,       # df w columns: sample, group, x, y (one row per pixel)
+    var = peptide_metadata      # df with peptide names as index (one row per peptide)--just column titles
+)
+
+NUM_PC = 5      # Number of principal components to search for in pca and passed to nearest neighbor graph 
+# NOTE should use some sort of heuristic here rather than a constant integer
+
+print('Running PCA...')
+sc.pp.pca(ann_obj, n_comps = NUM_PC)     # preprocess data for pca, n_comps give number of PCs to look for
+
+print('Running UMAP analysis...')
+sc.pp.neighbors(ann_obj, use_rep='X_pca', n_pcs=NUM_PC)       # generate nearest neighbor graph needed for umap
+sc.tl.umap(ann_obj)    
+
+# Do actual plotting
+print('Generating PCA and UMAP figures...')
+sc.pl.pca(ann_obj, color='group')
+sc.pl.umap(ann_obj, color='group')
