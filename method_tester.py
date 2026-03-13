@@ -4,7 +4,7 @@ import scipy.stats as stats
 #from statsmodels.stats.multitest import multipletests 
 from matplotlib import pyplot as plt
 import os
-#import seaborn as sns
+import seaborn as sns
 import math 
 from scipy.cluster.hierarchy import dendrogram, linkage
 from sklearn.model_selection import train_test_split
@@ -15,6 +15,7 @@ import scanpy as sc
 from scipy.spatial.distance import cdist
 from scipy.sparse.csgraph import minimum_spanning_tree
 import networkx as nx
+
 
 # plt.rcParams(font='Arial')
 
@@ -321,15 +322,34 @@ ann_obj = ad.AnnData(
     var = peptide_metadata      # df with peptide names as index (one row per peptide)--just column titles
 )
 
-NUM_PC = 5      # Number of principal components to search for in pca and passed to nearest neighbor graph 
-# NOTE should use some sort of heuristic here rather than a constant integer
+# NUM_PC = 5      # Number of principal components to search for in pca and passed to nearest neighbor graph 
+# # NOTE should use some sort of heuristic here rather than a constant integer
 
-print('Running PCA...')
-sc.pp.pca(ann_obj, n_comps = NUM_PC)     # preprocess data for pca, n_comps give number of PCs to look for
+# print('Running PCA...')
+# sc.pp.pca(ann_obj, n_comps = NUM_PC)     # preprocess data for pca, n_comps give number of PCs to look for
 
-print('Running UMAP analysis...')
-sc.pp.neighbors(ann_obj, use_rep='X_pca', n_pcs=NUM_PC)       # generate nearest neighbor graph needed for umap
-sc.tl.umap(ann_obj)    
+# print('Running UMAP analysis...')
+# sc.pp.neighbors(ann_obj, use_rep='X_pca', n_pcs=NUM_PC)       # generate nearest neighbor graph needed for umap
+# sc.tl.umap(ann_obj)    
+
+# # Do actual plotting
+# print('Generating PCA and UMAP figures...')
+# sc.pl.pca(ann_obj, color='group')
+# sc.pl.umap(ann_obj, color='group')
+
+
+### Run SCIMITAR ###
+import scimitar.models 
+import scimitar.plotting
+from collections import defaultdict
+        
+sns.set_style('white')
+sns.set_context('talk', font_scale=2)
+
+results = scimitar.models.get_gmm_bootstrapped_metastable_graph(ann_obj[], n_boot=20, covariance_type = 'diag')
+
+metastable_graph, bootstrap_replicates, edge_fractions = results
+metastable_graph.edge_weights = edge_fractions
 
 # Do actual plotting
 # print('Generating PCA and UMAP figures...')

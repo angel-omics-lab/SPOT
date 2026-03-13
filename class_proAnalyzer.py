@@ -473,7 +473,7 @@ class SpatialProteomicsAnalyzer:
 
     def run_pseudotime_tscan(self):
         '''
-        Runs TSCAN pseudotime analysis using MST for trajectory. 
+        Runs SCIMITAR pseudotime analysis. 
         
         '''
 
@@ -482,7 +482,10 @@ class SpatialProteomicsAnalyzer:
         '''
         Runs Slingshot pseudotime analysis. 
         
-        '''        
+        sns.set_style('white')
+        sns.set_context('talk', font_scale=2)
+
+        results = scimitar.models.get_gmm_bootstrapped_metastable_graph(self.ann_obj)
          
     
     
