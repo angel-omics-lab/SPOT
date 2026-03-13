@@ -469,17 +469,19 @@ class SpatialProteomicsAnalyzer:
             'centroids' : centroids_pca
         }
             
-    def run_pseudotime_tscan(self):
+    def run_pseudotime_scimitar(self):
         '''
-        Runs TSCAN pseudotime analysis using MST for trajectory. 
+        Runs SCIMITAR pseudotime analysis. 
         
         '''
+        import scimitar.models 
+        import scimitar.plotting
+        from collections import defaultdict
+        
+        sns.set_style('white')
+        sns.set_context('talk', font_scale=2)
 
-    def run_pseudotime_slingshot(self):
-        '''
-        Runs Slingshot pseudotime analysis. 
-        
-        '''        
+        results = scimitar.models.get_gmm_bootstrapped_metastable_graph(self.ann_obj)
          
     
     
