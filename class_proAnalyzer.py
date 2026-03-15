@@ -41,6 +41,16 @@ class SpatialProteomicsAnalyzer:
         except FileNotFoundError as e:
             print('Issue loading spreadsheet, check passed file path')
             print(e)
+        # Set plot formatting defaults    
+        plt.rcParams.update({
+            'font.family': 'Arial',
+            'font.size': 12,
+            'axes.titlesize': 14,
+            'axes.labelsize': 12,
+            'figure.dpi': 150,
+            'axes.spines.top': False,
+            'axes.spines.right': False,
+    })
         
         
     def load_and_preprocess(self):
