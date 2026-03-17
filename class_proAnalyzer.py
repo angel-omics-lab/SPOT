@@ -53,7 +53,7 @@ class SpatialOmicsAnalyzer:
         })
 
         
-    def load_and_preprocess(self):
+    def filter_rois(self):
         '''
         Load ROIs, filter out the ones with >25% 0s, then normalize the intensities via log transform
         
@@ -75,9 +75,6 @@ class SpatialOmicsAnalyzer:
                 print(f'Removed {region} with {label} label from list: >25% zero intensities.')
             else: 
                 print(f'{region} accepted')
-                print(f'Normalizing intensities in {region}')
-                data.iloc[:, 4:] = np.log(data.iloc[:, 4:])  # Natural log intensities
-                ### NOTE save normalized intensities somewhere??
         for region in to_remove:
             del self.roi_labels[region] 
         print('ROI filtering complete. Filtered list: ', self.roi_labels.keys())
@@ -129,7 +126,7 @@ class SpatialOmicsAnalyzer:
         
     
 
-    def compute_peptide_sparsity(self): 
+    def peptide_sparsity_filter(self): 
         '''
         Removes peptides only sparsely expressed across ROIs. Those with <20% expression in >10% of ROIs are removed. 
 
@@ -160,7 +157,18 @@ class SpatialOmicsAnalyzer:
         print('Peptide filtering complete. Filtered list: ', self.good_peptides)
         return [float(p) for p in self.good_peptides]
     
-    
+    def normalize_intensities(self):
+        '''
+        Natural log transforms peptide intensities. Zeros are replaced with NaN before log transform to avoid -inf values. 
+        '''
+        print('Normalizing intensities...')
+        for region in self.roi_labels:
+            data = self.data[region]
+            cols = [p for p in self.good_peptides if p in data.columns]
+            data[cols] = data[cols].replace(0,np.nan)
+            data[cols] = np.log(data[cols])
+            data[cols] = data[cols].replace(np.nan, 0)
+        print('Normalization complete.')
 
 
     def diff_expression_test(self): 
@@ -216,7 +224,7 @@ class SpatialOmicsAnalyzer:
             )
             plot_df = pd.DataFrame(plot_data)
 
-            sns.boxplot(data=plot_df, x='Class', y='ln(Mean Intensity)', 
+            sns.boxplot(data=plot_df, x='Class', y='Intensity', 
                         hue='Class', palette={'DCIS':'dodgerblue', 'IBC':'orange'},
                          ax=axs[i], legend=False
             )
@@ -543,9 +551,10 @@ class SpatialOmicsAnalyzer:
     def allPipeline(self):
         # Create results folder in data's parent folder
         os.makedirs((os.path.join(os.path.dirname(self.data_path), 'results')), exist_ok=True)
-        self.load_and_preprocess()
+        self.filter_rois()
         self.get_roi_map()
-        self.compute_peptide_sparsity()
+        self.peptide_sparsity_filter()
+        self.normalize_intensities()
         self.diff_expression_test()
         self.generate_boxplots()
         roi_stats = self.get_roi_stats()
