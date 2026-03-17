@@ -25,12 +25,13 @@ TODO
 -resolve natural log normalization issue with zeros, maybe do normalization after peptide filtering
 -update roi_labels to be read from a json file at data_path rather than a passed argument 
 -optional: have spatial roi map be overlayed the H&E picture, this would require (or make this conditional on its existence) user to have a .png or .jpeg in data folder
--create results folder in data_path then put all plots there
+-DONE--create results folder in data_path then put all plots there
 -have user pass classes (or just read unique classes from roi_labels.json)--would need to update a couple functions where 'DCIS'/'IBC' are hardcoded (get_roi_map and diff_expression_test notably)
 -update plot formatting so all peptides are rounded to 3 decimals
 -add some measure of duration? 
 -maybe: change get_random_forest_model_ranking to train random forest model on all peptides then rank them by their feature importance rather than one at a time (could also do both?)
 -tag results folder name with date and time so it's unique? 
+-add try except in allPipeline for non-critical/independent methods (ex. generate_boxplots)
 
 '''
 
@@ -39,6 +40,18 @@ class SpatialOmicsAnalyzer:
         self.data_path = data_path
         self.roi_labels = roi_labels        # Contains sheet name of each ROI and its label  
         self.good_peptides = None
+        self.ann_obj = None
+        try: 
+            self.data = pd.read_excel(data_path, sheet_name=None)
+        except FileNotFoundError as e:
+            print('Issue loading spreadsheet, check file path')
+            print(e)
+        # Univeral plot formatting
+        plt.rcParams.update({
+            'font.family': 'Arial',
+            'font.size': 12 
+        })
+
         
     def load_and_preprocess(self):
         '''
@@ -50,7 +63,7 @@ class SpatialOmicsAnalyzer:
         print('Filtering ROIs...')
         to_remove = []
         for region, label in self.roi_labels.items():
-            data = pd.read_excel(self.data_path, sheet_name=region)
+            data = self.data[region] 
             intensities = data.iloc[:, 4:]      # Skip first 4 columns 
             print(f'Processing {region}...')
             intensities = intensities.fillna(0)        # Change all NaN values to 0 
@@ -63,7 +76,7 @@ class SpatialOmicsAnalyzer:
             else: 
                 print(f'{region} accepted')
                 print(f'Normalizing intensities in {region}')
-                data.iloc[:, 4:] = np.log(data.iloc[:, 4:])  # Natural log intensities
+                data.iloc[:, 4:] = np.log1p(data.iloc[:, 4:])  # Natural log intensities
         for region in to_remove:
             del self.roi_labels[region] 
         print('ROI filtering complete. Filtered list: ', self.roi_labels.keys())
@@ -197,7 +210,7 @@ class SpatialOmicsAnalyzer:
             )
             plot_df = pd.DataFrame(plot_data)
 
-            sns.boxplot(data=plot_df, x='Class', y='', 
+            sns.boxplot(data=plot_df, x='Class', y='ln(Mean Intensity)', 
                         hue='Class', palette={'DCIS':'dodgerblue', 'IBC':'orange'},
                          ax=axs[i], legend=False
             )
@@ -527,7 +540,7 @@ class SpatialOmicsAnalyzer:
 ##### Entire pipeline ##### 
     def allPipeline(self):
         # Create results folder in data's parent folder
-        os.makedirs((os.path.join(os.path.dirname(self.data_path), 'results')))
+        os.makedirs((os.path.join(os.path.dirname(self.data_path), 'results')), exist_ok=True)
         self.load_and_preprocess()
         self.get_roi_map()
         self.compute_peptide_sparsity()

@@ -4,7 +4,7 @@ from class_proAnalyzer import SpatialOmicsAnalyzer
 
 
 DATA_PATH = r'C:\Users\AngelLab\Desktop\pipeline-data_PMA\DCIS065_A5_HE_total_modified.xlsx'
-JSON_PATH = r'C:\Users\AngelLab\Documents\GitHub\spatial-proteomics-analyzer\roi_labels.xlsx'
+#JSON_PATH = r'C:\Users\AngelLab\Documents\GitHub\spatial-proteomics-analyzer\roi_labels.xlsx'
 
 roi_labels = {
     'ROI_101':'DCIS', 
@@ -40,6 +40,4 @@ roi_labels = {
 SOMA = SpatialOmicsAnalyzer(data_path=DATA_PATH, roi_labels=roi_labels)
 
 SOMA.allPipeline()
-
-
 
