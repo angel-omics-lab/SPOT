@@ -11,7 +11,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import scale
 import anndata as ad
-import scanpy as sc
+#import scanpy as sc
 
 
 # plt.rcParams(font='Arial')
@@ -275,16 +275,19 @@ print(roi_stats)
 ########### pixel-level analysis ##############
 print('Constructing anndata object...')
 
-data_filtered = data[data['ROI'].isin(roi_labels.keys())]
 
-combined_intensities = data_filtered[good_peptides].values.astype(float)
-combined_intensities = scale(combined_intensities)      # z-score scale intentities so peptide contributions are equalized for PCA
+ # Concat ROI sheets into a single flat df
+combined = pd.concat([df.assign(ROI=roi) for roi, df in data.items() if roi in roi_labels], ignore_index=True)
+        
+# Extract and scale peptide intensity matrix 
+combined_intensities = combined[good_peptides].values.astype(float)
+combined_intensities = scale(combined_intensities)      # z-score so peptides contribute equally to PCA
 
 pixel_metadata =  pd.DataFrame({
-    'sample': data_filtered['ROI'].values,
-    'class': data_filtered['ROI'].map(roi_labels).values, 
-    'x': data_filtered['x'].values.astype(float),
-    'y': data_filtered['y'].values.astype(float), 
+    'sample': combined['ROI'].values,
+    'class': combined['ROI'].map(roi_labels).values, 
+    'x': combined['x'].values.astype(float),
+    'y': combined['y'].values.astype(float), 
     })
            
 peptide_metadata = pd.DataFrame(
@@ -315,19 +318,100 @@ ann_obj = ad.AnnData(
 # sc.pl.umap(ann_obj, color='group')
 
 
+
+
+
+
+
 ### Run SCIMITAR ###
 import scimitar.models 
 import scimitar.plotting
+import scimitar.morphing_mixture as mm 
+import scimitar.differential_analysis
 from collections import defaultdict
-        
-sns.set_style('white')
-sns.set_context('talk', font_scale=2)
 
-results = scimitar.models.get_gmm_bootstrapped_metastable_graph(ann_obj[], n_boot=20, covariance_type = 'diag')
 
-metastable_graph, bootstrap_replicates, edge_fractions = results
-metastable_graph.edge_weights = edge_fractions
 
-plt.figure(1, figsize=(10,10))
-plt.clf()
-membership_colors, embeddign = scimitar.plotting.plot_metastable_graph()
+    ###### Metastable state graph #######
+# metastable_graph : graph object whose nodes are GMM components/metastable states fit to full dataset. Each node carries the Gaussian parameters (mean vector and covariance) for that state
+# bootstrap_replicates : raw record of all bootstrapping runs 
+# edge_fractions : derived from replicates, for each pair of states, gives fraction of runs that found connection sig (i.e. confidence score of edge, also sig if assessed by Cohen's d)
+# NOTE GMM is fit once to the full data to define states, then bootstrapping is done to get edge confidence 
+metastable_graph, bootstrap_replicates, edge_fractions = scimitar.models.get_gmm_bootstrapped_metastable_graph(
+    ann_obj.X, 
+    n_boot = 20, 
+    covariance_type = 'diag'
+)
+metastable_graph.edge_weights = edge_fractions     # store confidence scores on graph object--done so plotting function can later use thickness to show how supported the edge is
+
+# Plot and capture outputs
+plt.figure()
+state_colors, embedding = scimitar.plotting.plot_metastable_graph(
+    ann_obj.X, 
+    metastable_graph, 
+    edge_weights=edge_fractions
+)
+
+state_colors = ann_obj.obs['metastable_state']
+embeddings = ann_obj.obsm['X_metastable']
+
+unique_states = ann_obj.obs['metastable_state'].unique()
+print('Number of states identified by metastable graph: ', len(unique_states))
+
+plt.show()
+
+# ###### MGM ######
+# # The fit_transition_model method fits a single-curve MGM to the pre-determined states
+#     # analyzed_indices: indices of states specified
+# transition_model, analyzed_indices = metastable_graph.fit_transition_model(ann_obj.X, states=['green', 'dodgerblue', 'orange'])
+
+# # Visualize the MGM 
+# scimitar.plotting.plot_transition_model(ann_obj.X,
+#     transition_model, 
+#     colors = ann_obj.obs['metastable_state'], 
+#     embedding=ann_obj.obsm['X_metastable'], 
+#     scatter_plot_args={'s':200, 'alpha':0.6}, 
+#     plot_errors=False
+# )
+
+# # Refine the MGM
+# transition_model = mm.morphing_gaussian_from_embedding(ann_obj.X, 
+#     fit_type='spline', 
+#     degree=3, 
+#     step_size=0.07, 
+#     cov_estimator = 'corpcor',      # method used to estimate covariance matrices 
+#     cov_reg=0.05       # smoothing parameter 
+# )
+
+# # Plot refined model 
+# refined_transition_model, refined_pseudotimes = transition_model.refine(ann_obj.X,
+#     max_iter=3, 
+#     step_size=0.07, 
+#     cov_estimator='corpcor', 
+#     cov_reg=0.05
+# )
+
+# unique_states = ann_obj.obs['metastable_state'].unique()
+# print(unique_states)
+
+
+# ##### Progression association analysis from MGM (optional) #####
+#     # Get array of means and covariances
+# timepoints = np.arange(0, 1., 0.01)
+# means = refined_transition_model.mean(timepoints)
+# covariances = refined_transition_model.covariance(timepoints)
+
+#     # Peform tests for progression association
+# n_genes = ann_obj.X.shape[1]
+# variances = np.array([covariances[:, i, i] for i in range (n_genes)]).T 
+# pvals = scimitar.differential_analysis.progression_associated_lr_test(ann_obj.X, means, covariances)
+# qvals, sig_peps = scimitar.differential_analysis.p_adjsut(pvals, correction_method='BH', threshold=0.05)
+
+#     # Plot identified progression-associated genes over pseudotime 
+# pep_names = ann_obj.var.index
+# cluster_members = scimitar.plotting.plot_transition_clustermap(means, pep_names, timepoints, n_clusters=5)
+
+
+# ##### Get co-regulatory states (optional) #####
+
+    
