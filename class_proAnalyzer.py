@@ -643,23 +643,17 @@ class SpatialOmicsAnalyzer:
         }
             
 
-    def run_pseudotime_tscan(self):
+
+
+    def run_pseudotime_scimitar(self):
         '''
         Runs SCIMITAR pseudotime analysis. 
-        Step 1 : Create metastable state graph to seed MGM 
-        Step 2: Create and refine MGM
-        
         '''
         import scimitar.models 
         import scimitar.plotting
         import scimitar.morphing_mixture as mm
         import scimitar.differential_analysis 
         from collections import defaultdict
-
-
-    def run_pseudotime_slingshot(self):
-        '''
-        Runs Slingshot pseudotime analysis. 
         
         # Step 1: Create metastable graph, then save outputs 
         metastable_graph, bootstrap_replicates, edge_fractions = scimitar.models.get_gmm_bootstrapped_metastable_graph(
