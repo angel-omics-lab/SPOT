@@ -166,7 +166,7 @@ class SpatialOmicsAnalyzer:
     def diff_expression_test(self): 
         '''
         Identifies peptides that have differential expression between classes (in this instance DCIS v IBC) via 
-        Kruskal-Wallis test with Benjamini-Hochberg FDR validation. Generates a boxplot of 
+        Kruskal-Wallis test with Benjamini-Hochberg FDR validation.
         
         Returns:
             good_peptides(list) updated so it is now only those differentially expressed.
@@ -432,171 +432,10 @@ class SpatialOmicsAnalyzer:
         print('Generating PCA and UMAP figures...')
         sc.pl.pca(self.ann_obj, color='class', 
                   save=os.path.join(os.path.dirname(self.data_path), 'results/pca.png'))
-        print('PCA plot generation successful.')
+        print('PCA plot generated successfully.')
         sc.pl.umap(self.ann_obj, color='class', 
                   save=os.path.join(os.path.dirname(self.data_path), 'results/umap.png'))
-        print('UMAP plot generation successful.')
-        print('Figures saved to ', self.data_path)
-
-    
-    def compute_mst(self):
-        '''
-        Generates a minimum spanning tree (MST) connecting ROI centroids in PCA space. 
-        It is used as the 'backbone' of TSCAN and is overlaid on the UMAP generated from it. 
-        
-        Args:
-            ann_obj (AnnData) : output of run_pixel_analysis(), is original ann_obj with added X_pca and X_umap in obs 
-        
-        Returns: 
-            ann_obj (AnnData) : updated with MST stored in ann_obj.uns['mst']
-                uns['mst']['graph'] -- networkx graph of MST
-                uns['mst']['centroids_pca'] -- df, ROI centroids in PCA space
-        '''
-        if self.ann_obj is None:
-            raise RuntimeError('ann_obj is empty. Run create_anndata_object() and run_pixel_analysis() first')
-        
-        print('Computing MST...')
-        # Compute roi centroids in pca space
-        n_comps = self.ann_obj.obsm['X_pca'].shape[1]
-        pca_df = pd.DataFrame(
-            self.ann_obj.obsm['X_pca'], 
-            index = self.ann_obj.obs_names, 
-            columns=[f'PC{i+1}' for i in range(n_comps)]
-        )
-        pca_df['sample']=self.ann_obj.obs['sample'].values
-        centroids_pca = pca_df.groupby('sample').mean()
-        
-        # Build mst on centroids
-        dist_matrix = cdist(centroids_pca.values, centroids_pca.values, metric='euclidean')     # Gets Eucl. distance between every ROI centroid pair in PCA space
-        mst_sparse = minimum_spanning_tree(dist_matrix)         # Actual MST algorithm -- finding edge subset that minimizes total distance, outputs sparse matrix identifying those edges
-        
-        graph = nx.from_scipy_sparse_array(mst_sparse)      # Converts sparse matrix into graph object 
-        roi_names = list(centroids_pca.index)
-        mst_graph = nx.relabel_nodes(graph, {i: name for i, name in enumerate(roi_names)})      # Swaps default node names for actual ROIs
-        
-        print(f'MST built with {mst_graph.number_of_nodes()} nodes and {mst_graph.number_of_edges()} edges')
-        
-        # Add MST data to ann_obj
-        self.ann_obj.uns['mst'] = {
-            'graph': mst_graph, 
-            'centroids' : centroids_pca
-        }
-        print('MST construction successful. Nodes and edges saved to Anndata object.')
-            
-
-    def get_random_forest_ranking(self, roi_stats):
-        '''
-        Runs a random forest classification model for all peptides then outputs a bar plot of peptides with their 'discriminating' score. 
-        
-        Returns
-        random_forest_bar_graph (png)
-        '''
-        print('Generating random forest models per peptide...')
-        oob_list = []
-        # Convert peptides to string so yticks interpreted as categorical
-        good_peptides_str = [str(p) for p in self.good_peptides]
-        roi_stats_str = roi_stats
-        roi_stats_str.columns = [str(c) for c in roi_stats_str.columns]
-        for peptide in good_peptides_str : 
-            X = roi_stats_str[[peptide]]    
-            y = roi_stats_str['class']
-            # Randomly split the dataset so 10% is reserved for model validation 
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
-            
-            forest_model = RandomForestClassifier(n_estimators=100, oob_score=True, random_state=42)
-            forest_model.fit(X_train, y_train)
-            oob_list.append(forest_model.oob_score_)
-            
-        # Plot each peptide oob on bar plot
-        print('Constructing oob bar plot...')
-        # Sort them so plot can have them listed as ascending
-        sorted_pairs = sorted(zip(oob_list, good_peptides_str), key=lambda x:x[0])
-        sorted_scores, sorted_peptides = zip(*sorted_pairs)
-        
-        plt.barh(sorted_peptides, sorted_scores, color='mediumorchid')
-        plt.title('Peptide discrimination score in random forest models')
-        plt.xlabel('OOB score')
-        plt.xlim(0,1)
-        print('Saving bar plot to ', self.data_path)
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'forest_barplot.png'))
-        plt.show()
-
-
-    def create_anndata_object(self):
-        '''
-        Creates an AnnData object for pixel-level analysis. Concatenates all accepted ROI sheets, filters to good_peptides, z-score scales intensities, 
-        and attached per-pixel metadata (ROI, class, x-coord, y-coord). This object is used as the input for PCA and UMAP analysis. 
-        
-        Returns: 
-            ann_obj (AnnData): shape (n_pixels, n_peptides), with obs metadata and var peptide index.
-        
-        '''
-        print('Constructing AnnData object...')
-        # Concat ROI sheets into a single flat df
-        combined = pd.concat([df.assign(ROI=roi) for roi, df in self.data.items() if roi in self.roi_labels], 
-                             ignore_index=True)
-        
-        # Extract and scale peptide intensity matrix 
-        combined_intensities = combined[self.good_peptides].values.astype(float)
-        combined_intensities = scale(combined_intensities)      # z-score scaling so peptides contribute equally to PCA
-        
-        # Build per-pixel metadata (obs)
-        pixel_metadata = pd.DataFrame({
-            'sample': combined['ROI'].values, 
-            'class': combined['ROI'].map(self.roi_labels).values, 
-            'x': combined['x'].values.astype(float),
-            'y': combined['y'].values.astype(float)
-        })
-        
-        # Build per-peptide metadata (var)
-        peptide_metadata = pd.DataFrame(
-            {'peptide':self.good_peptides}, 
-            index=[str(p) for p in self.good_peptides]
-        )
-        
-        self.ann_obj = ad.AnnData(
-            X = combined_intensities,   # (n_pixels, n_peptides)
-            obs = pixel_metadata,       # one row per pixel
-            var = peptide_metadata      # one row per peptide
-        )
-        
-        print('AnnData object created successfully. Shape:', self.ann_obj.shape)
-    
-    
-    def run_pixel_analysis(self):
-        '''
-        Runs PCA and UMAP on a pixel-level AnnData object then saves the resulting plots, colored by class label. 
-        We use scanpy rather than sklearn because it saves computational time when identifying num of PCs to retain. 
-        
-        Args:
-            ann_obj (AnnData): output of create_anndata_object()
-        
-        Returns:
-            ann_obj (AnnData): updated with PCA and UMAP embeddings
-            Not returned, but saves both pca and umap plots
-        '''
-        # Calculate number of components to retain for PCA with Explained Variance Threshold heuristic
-        print('Calculating optimal number of PCA components...')
-        max_comps = min(self.ann_obj.n_obs, self.ann_obj.n_vars) - 1
-        sc.pp.pca(self.ann_obj, n_comps=max_comps)       # Run pca with max comps
-        cumsum = np.cumsum(self.ann_obj.uns['pca']['variance_ratio'])
-        
-        n_comps = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
-        print(f'Retaining {n_comps} principal components (explain >= 95% of variance)')
-        
-        print('Running PCA...') 
-        sc.pp.pca(self.ann_obj, n_comps=n_comps)
-        
-        print('Running UMAP analysis...')
-        sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=n_comps)
-        sc.tl.umap(self.ann_obj)
-        
-        print('Generating PCA and UMAP figures...')
-        sc.pl.pca(self.ann_obj, color='class', 
-                  save=os.path.join(os.path.dirname(self.data_path), 'pca.png'))
-        sc.pl.umap(self.ann_obj, color='class', 
-                  save=os.path.join(os.path.dirname(self.data_path), 'umap.png'))
-        print('Figures saved to ', self.data_path)
+        print('UMAP plot generated successfully.')
 
     
     def compute_mst(self):
