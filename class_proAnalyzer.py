@@ -256,7 +256,7 @@ class SpatialProteomicsAnalyzer:
             ignore_index=True
         )
             # Groupby computes centroid AND all peptide means in one pass (vector operation)
-        agg_dict = {'x': 'mean', 'y': 'mean', **{p: 'mean' for p in self.good_peptides}}
+        agg_dict = {'x': 'mean', 'y': 'mean', **{p: 'median' for p in self.good_peptides}}
         roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
         roi_stats['class'] = roi_stats['roi'].map(self.roi_labels)
 
@@ -371,11 +371,12 @@ class SpatialProteomicsAnalyzer:
         '''
         print('Constructing AnnData object...')
         # Concat ROI sheets into a single flat df
-        combined = pd.concat([df.assign(ROI=roi) for roi, df in self.data.items() in self.roi_labels], ignore_index=True)
+        combined = pd.concat([df.assign(ROI=roi) for roi, df in self.data.items() if roi in self.roi_labels], 
+                             ignore_index=True)
         
         # Extract and scale peptide intensity matrix 
         combined_intensities = combined[self.good_peptides].values.astype(float)
-        combined_intensities = scale(combined_intensities)      # z-score so peptides contribute equally to PCA
+        combined_intensities = scale(combined_intensities)      # z-score scaling so peptides contribute equally to PCA
         
         # Build per-pixel metadata (obs)
         pixel_metadata = pd.DataFrame({
@@ -479,7 +480,8 @@ class SpatialProteomicsAnalyzer:
             'centroids' : centroids_pca
         }
             
-    def run_pseudotime_scimitar(self):
+
+    def run_pseudotime_tscan(self):
         '''
         Runs SCIMITAR pseudotime analysis. 
         Step 1 : Create metastable state graph to seed MGM 
@@ -491,6 +493,11 @@ class SpatialProteomicsAnalyzer:
         import scimitar.morphing_mixture as mm
         import scimitar.differential_analysis 
         from collections import defaultdict
+
+
+    def run_pseudotime_slingshot(self):
+        '''
+        Runs Slingshot pseudotime analysis. 
         
         # Step 1: Create metastable graph, then save outputs 
         metastable_graph, bootstrap_replicates, edge_fractions = scimitar.models.get_gmm_bootstrapped_metastable_graph(
