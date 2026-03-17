@@ -38,7 +38,7 @@ TODO
 class SpatialOmicsAnalyzer:
     def __init__(self, data_path, roi_labels):
         self.data_path = data_path
-        self.roi_labels = roi_labels        # Contains sheet name of each ROI and its label  
+        self.roi_labels = roi_labels        # Contains sheet name of each ROI and its label     # NOTE update it so it is reading through a json
         self.good_peptides = None
         self.ann_obj = None
         try: 
@@ -63,7 +63,7 @@ class SpatialOmicsAnalyzer:
         print('Filtering ROIs...')
         to_remove = []
         for region, label in self.roi_labels.items():
-            data = self.data[region] 
+            data = self.data[region]
             intensities = data.iloc[:, 4:]      # Skip first 4 columns 
             print(f'Processing {region}...')
             intensities = intensities.fillna(0)        # Change all NaN values to 0 
@@ -76,7 +76,8 @@ class SpatialOmicsAnalyzer:
             else: 
                 print(f'{region} accepted')
                 print(f'Normalizing intensities in {region}')
-                data.iloc[:, 4:] = np.log1p(data.iloc[:, 4:])  # Natural log intensities
+                data.iloc[:, 4:] = np.log(data.iloc[:, 4:])  # Natural log intensities
+                ### NOTE save normalized intensities somewhere??
         for region in to_remove:
             del self.roi_labels[region] 
         print('ROI filtering complete. Filtered list: ', self.roi_labels.keys())
@@ -88,6 +89,7 @@ class SpatialOmicsAnalyzer:
         '''
         Creates a spatial dot plot of the ROIs where each dot is the location of the ROIs spatial centroid. 
         Dots are colored according to their class. 
+        NOTE potential ~upgrade~ is to have the dots overlay a picture of the tissue, This would require cv2 AND for user to pass a png/jpeg
         
         ''' 
         print('Generating spatial dot plot for regions...')
@@ -106,7 +108,7 @@ class SpatialOmicsAnalyzer:
                 
             # Generate colored scatter plot
         sns.scatterplot(data=roi_stats, x='x', y='y', 
-                        hue='class', palette={'DCIS':'dodgerblue', 'IBC':'orange', 'Normal':'green'},   
+                        hue='class', palette={'DCIS':'dodgerblue', 'IBC':'orange', 'Normal':'green'},       ## NOTE would need to change to allow passed classes
                         s=250
         )
         for x, y, roi in zip(roi_stats['x'], roi_stats['y'], roi_stats['roi']):
@@ -129,22 +131,27 @@ class SpatialOmicsAnalyzer:
 
     def compute_peptide_sparsity(self): 
         '''
-        Calculate which peptides are expressed across all ROIs, then remove those that arent. 
+        Removes peptides only sparsely expressed across ROIs. Those with <20% expression in >10% of ROIs are removed. 
 
         Returns: 
-            good_peptides(list): list of all peptides that are expressed across ROIs. 
+            None, but updates good_peptides(list): list of all peptides that are well expressed across ROIs. 
         '''
         
         print('Filtering peptides...')
-        peptide_list = [758.4519, 797.4264, 976.4517]       ## NOTE need to update this
-        roi_data = {region: pd.read_excel(self.data_path, sheet_name=region).iloc[:, 4] for region in self.roi_labels}       # Read all ROIs into a dict
-        all_data = pd.concat(roi_data, names=['ROI', 'sample'])     # Stack all ROI data with ROI labels
-        zero_counts_per_peptide = pd.Series(dtype=int) 
-
+        # peptide_list = self.data[region].columns[4:]
+        # Get union of all peptide columns across ROIs (handles ROIs w different peptides)       
+        all_peptides = set()    
         for region in self.roi_labels:
-            intensities = pd.read_excel(self.data_path, sheet_name=region).iloc[:, 4:]
-            zero_pct = (intensities==0).mean()      # Percentage of 0 intensities for each peptide
-            zero_counts_per_peptide = zero_counts_per_peptide.add((zero_pct > 0.20).astype(int), fill_value=0)      # Label peptide for region with 0 if > 20% of values are 0 
+            all_peptides.update(self.data[region].columns[4:])            
+        
+        zero_counts_per_peptide = pd.Series(0, index=list(all_peptides))
+        
+        for region in self.roi_labels:
+            intensities = self.data[region].iloc[:, 4:]     # Grabs peptide columns for the roi
+            zero_pct = (intensities==0).mean()      # Calculate percentage of 0 intensities for each peptide
+            # Identify peptides as T/F based on zero_pct, and aligns Series to full peptide index (allows for peptides existing in some ROIs but not others)
+            flagged = (zero_pct > 0.2).reindex(zero_counts_per_peptide.index, fill_value=0)     
+            zero_counts_per_peptide = zero_counts_per_peptide.add(flagged.astype(int))      # Tells how many ROIs found each peptide to be too sparse, used by threshold
 
         # Keep peptides that are present in >= 10% ROIs 
         threshold = len(self.roi_labels)*0.10       
@@ -164,7 +171,6 @@ class SpatialOmicsAnalyzer:
         Returns:
             good_peptides(list) updated so it is now only those differentially expressed.
         '''
-        data = pd.read_excel(self.data_path, sheet_name=None)
         results_list = []
         # Identify significant peptide 
         print('Identifying differentially expressed peptides...')
@@ -249,7 +255,7 @@ class SpatialOmicsAnalyzer:
             ignore_index=True
         )
             # Groupby computes centroid AND all peptide means in one pass (vector operation)
-        agg_dict = {'x': 'mean', 'y': 'mean', **{p: 'mean' for p in self.good_peptides}}
+        agg_dict = {'x': 'mean', 'y': 'mean', **{p: 'median' for p in self.good_peptides}}
         roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
         roi_stats['class'] = roi_stats['roi'].map(self.roi_labels)
 
@@ -478,57 +484,220 @@ class SpatialOmicsAnalyzer:
         print('MST construction successful. Nodes and edges saved to Anndata object.')
             
 
-        # import scimitar.models 
-        # import scimitar.plotting
-        # import scimitar.morphing_mixture as mm
-        # import scimitar.differential_analysis 
-        # from collections import defaultdict
+    def get_random_forest_ranking(self, roi_stats):
+        '''
+        Runs a random forest classification model for all peptides then outputs a bar plot of peptides with their 'discriminating' score. 
+        
+        Returns
+        random_forest_bar_graph (png)
+        '''
+        print('Generating random forest models per peptide...')
+        oob_list = []
+        # Convert peptides to string so yticks interpreted as categorical
+        good_peptides_str = [str(p) for p in self.good_peptides]
+        roi_stats_str = roi_stats
+        roi_stats_str.columns = [str(c) for c in roi_stats_str.columns]
+        for peptide in good_peptides_str : 
+            X = roi_stats_str[[peptide]]    
+            y = roi_stats_str['class']
+            # Randomly split the dataset so 10% is reserved for model validation 
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
+            
+            forest_model = RandomForestClassifier(n_estimators=100, oob_score=True, random_state=42)
+            forest_model.fit(X_train, y_train)
+            oob_list.append(forest_model.oob_score_)
+            
+        # Plot each peptide oob on bar plot
+        print('Constructing oob bar plot...')
+        # Sort them so plot can have them listed as ascending
+        sorted_pairs = sorted(zip(oob_list, good_peptides_str), key=lambda x:x[0])
+        sorted_scores, sorted_peptides = zip(*sorted_pairs)
+        
+        plt.barh(sorted_peptides, sorted_scores, color='mediumorchid')
+        plt.title('Peptide discrimination score in random forest models')
+        plt.xlabel('OOB score')
+        plt.xlim(0,1)
+        print('Saving bar plot to ', self.data_path)
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'forest_barplot.png'))
+        plt.show()
 
 
-    # def run_pseudotime_scimitar(self):
-    #     '''
-    #     Runs scimitar pseudotime analysis. This function is largely based on the quick_start.ipynb found in the SCIMITAR GitHub repo. 
-    #         Step 1 : Create metastable state graph to seed MGM 
-    #         Step 2: Create and refine MGM
-    #       '''
+    def create_anndata_object(self):
+        '''
+        Creates an AnnData object for pixel-level analysis. Concatenates all accepted ROI sheets, filters to good_peptides, z-score scales intensities, 
+        and attached per-pixel metadata (ROI, class, x-coord, y-coord). This object is used as the input for PCA and UMAP analysis. 
         
-    #     # Step 1: Create metastable graph, then save outputs 
-    #     metastable_graph, bootstrap_replicates, edge_fractions = scimitar.models.get_gmm_bootstrapped_metastable_graph(
-    #         self.ann_obj.X, 
-    #         n_boot = 20, 
-    #         covariance_type = 'diag'
-    #     )  
-    #     metastable_graph.edge_weights = edge_fractions
+        Returns: 
+            ann_obj (AnnData): shape (n_pixels, n_peptides), with obs metadata and var peptide index.
         
-    #     state_colors, embedding = scimitar.plotting.plot_metastable_graph(
-    #         self.ann_obj.X, 
-    #         metastable_graph, 
-    #         edge_weights=edge_fractions
-    #     )
-    #     self.ann_obj.obs['metastable_state'] = state_colors
-    #     self.ann_obj.obsm['X_metastable'] = embedding
+        '''
+        print('Constructing AnnData object...')
+        # Concat ROI sheets into a single flat df
+        combined = pd.concat([df.assign(ROI=roi) for roi, df in self.data.items() if roi in self.roi_labels], 
+                             ignore_index=True)
         
-    #     # Step 2: Create and refine MGM 
-    #     transition_model, analyzed_indices = metastable_graph.fit_transition_model(self.ann_obj.X, states=['dodgerblue', 'orange', 'green'])
+        # Extract and scale peptide intensity matrix 
+        combined_intensities = combined[self.good_peptides].values.astype(float)
+        combined_intensities = scale(combined_intensities)      # z-score scaling so peptides contribute equally to PCA
+        
+        # Build per-pixel metadata (obs)
+        pixel_metadata = pd.DataFrame({
+            'sample': combined['ROI'].values, 
+            'class': combined['ROI'].map(self.roi_labels).values, 
+            'x': combined['x'].values.astype(float),
+            'y': combined['y'].values.astype(float)
+        })
+        
+        # Build per-peptide metadata (var)
+        peptide_metadata = pd.DataFrame(
+            {'peptide':self.good_peptides}, 
+            index=[str(p) for p in self.good_peptides]
+        )
+        
+        self.ann_obj = ad.AnnData(
+            X = combined_intensities,   # (n_pixels, n_peptides)
+            obs = pixel_metadata,       # one row per pixel
+            var = peptide_metadata      # one row per peptide
+        )
+        
+        print('AnnData object created successfully. Shape:', self.ann_obj.shape)
+    
+    
+    def run_pixel_analysis(self):
+        '''
+        Runs PCA and UMAP on a pixel-level AnnData object then saves the resulting plots, colored by class label. 
+        We use scanpy rather than sklearn because it saves computational time when identifying num of PCs to retain. 
+        
+        Args:
+            ann_obj (AnnData): output of create_anndata_object()
+        
+        Returns:
+            ann_obj (AnnData): updated with PCA and UMAP embeddings
+            Not returned, but saves both pca and umap plots
+        '''
+        # Calculate number of components to retain for PCA with Explained Variance Threshold heuristic
+        print('Calculating optimal number of PCA components...')
+        max_comps = min(self.ann_obj.n_obs, self.ann_obj.n_vars) - 1
+        sc.pp.pca(self.ann_obj, n_comps=max_comps)       # Run pca with max comps
+        cumsum = np.cumsum(self.ann_obj.uns['pca']['variance_ratio'])
+        
+        n_comps = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
+        print(f'Retaining {n_comps} principal components (explain >= 95% of variance)')
+        
+        print('Running PCA...') 
+        sc.pp.pca(self.ann_obj, n_comps=n_comps)
+        
+        print('Running UMAP analysis...')
+        sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=n_comps)
+        sc.tl.umap(self.ann_obj)
+        
+        print('Generating PCA and UMAP figures...')
+        sc.pl.pca(self.ann_obj, color='class', 
+                  save=os.path.join(os.path.dirname(self.data_path), 'pca.png'))
+        sc.pl.umap(self.ann_obj, color='class', 
+                  save=os.path.join(os.path.dirname(self.data_path), 'umap.png'))
+        print('Figures saved to ', self.data_path)
+
+    
+    def compute_mst(self):
+        '''
+        Generates a minimum spanning tree (MST) connecting ROI centroids in PCA space. 
+        It is used as the 'backbone' of TSCAN and is overlaid on the UMAP generated from it. 
+        
+        Args:
+            ann_obj (AnnData) : output of run_pixel_analysis(), is original ann_obj with added X_pca and X_umap in obs 
+        
+        Returns: 
+            ann_obj (AnnData) : updated with MST stored in ann_obj.uns['mst']
+                uns['mst']['graph'] -- networkx graph of MST
+                uns['mst']['centroids_pca'] -- df, ROI centroids in PCA space
+        '''
+        if self.ann_obj is None:
+            raise RuntimeError('ann_obj is empty. Run create_anndata_object() and run_pixel_analysis() first')
+        
+        print('Computing MST...')
+        # Compute roi centroids in pca space
+        n_comps = self.ann_obj.obsm['X_pca'].shape[1]
+        pca_df = pd.DataFrame(
+            self.ann_obj.obsm['X_pca'], 
+            index = self.ann_obj.obs_names, 
+            columns=[f'PC{i+1}' for i in range(n_comps)]
+        )
+        pca_df['sample']=self.ann_obj.obs['sample'].values
+        centroids_pca = pca_df.groupby('sample').mean()
+        
+        # Build mst on centroids
+        dist_matrix = cdist(centroids_pca.values, centroids_pca.values, metric='euclidean')     # Gets Eucl. distance between every ROI centroid pair in PCA space
+        mst_sparse = minimum_spanning_tree(dist_matrix)         # Actual MST algorithm -- finding edge subset that minimizes total distance, outputs sparse matrix identifying those edges
+        
+        graph = nx.from_scipy_sparse_array(mst_sparse)      # Converts sparse matrix into graph object 
+        roi_names = list(centroids_pca.index)
+        mst_graph = nx.relabel_nodes(graph, {i: name for i, name in enumerate(roi_names)})      # Swaps default node names for actual ROIs
+        
+        print(f'MST built with {mst_graph.number_of_nodes()} nodes and {mst_graph.number_of_edges()} edges')
+        
+        # Add MST data to ann_obj
+        self.ann_obj.uns['mst'] = {
+            'graph': mst_graph, 
+            'centroids' : centroids_pca
+        }
             
-    #         # Refine
-    #     transition_model = mm.morphing_gaussian_from_embedding(self.ann_obj.X, 
-    #         fit_type='spline', 
-    #         degree=3, 
-    #         step_size=0.07,
-    #         cov_estimator='corpcor', 
-    #         cov_reg=0.05
-    #     )
-            
-    #         # Plot refined model 
-    #     refined_transition_model, refined_pseudotimes = transition_model.refine(self.ann_obj.X, 
-    #         max_iter=3, 
-    #         step_size=0.07, 
-    #         cov_estimator='corpcor', 
-    #         cov_reg=0.05
-    #     )
+
+    def run_pseudotime_tscan(self):
+        '''
+        Runs SCIMITAR pseudotime analysis. 
+        Step 1 : Create metastable state graph to seed MGM 
+        Step 2: Create and refine MGM
         
-    #     # Skipping progression association and coregulatory state identifications
+        '''
+        import scimitar.models 
+        import scimitar.plotting
+        import scimitar.morphing_mixture as mm
+        import scimitar.differential_analysis 
+        from collections import defaultdict
+
+
+    def run_pseudotime_slingshot(self):
+        '''
+        Runs Slingshot pseudotime analysis. 
+        
+        # Step 1: Create metastable graph, then save outputs 
+        metastable_graph, bootstrap_replicates, edge_fractions = scimitar.models.get_gmm_bootstrapped_metastable_graph(
+            self.ann_obj.X, 
+            n_boot = 20, 
+            covariance_type = 'diag'
+        )  
+        metastable_graph.edge_weights = edge_fractions
+        
+        state_colors, embedding = scimitar.plotting.plot_metastable_graph(
+            self.ann_obj.X, 
+            metastable_graph, 
+            edge_weights=edge_fractions
+        )
+        self.ann_obj.obs['metastable_state'] = state_colors
+        self.ann_obj.obsm['X_metastable'] = embedding
+        
+        # Step 2: Create and refine MGM 
+        transition_model, analyzed_indices = metastable_graph.fit_transition_model(self.ann_obj.X, states=['dodgerblue', 'orange', 'green'])
+            
+            # Refine
+        transition_model = mm.morphing_gaussian_from_embedding(self.ann_obj.X, 
+            fit_type='spline', 
+            degree=3, 
+            step_size=0.07,
+            cov_estimator='corpcor', 
+            cov_reg=0.05
+        )
+            
+            # Plot refined model 
+        refined_transition_model, refined_pseudotimes = transition_model.refine(self.ann_obj.X, 
+            max_iter=3, 
+            step_size=0.07, 
+            cov_estimator='corpcor', 
+            cov_reg=0.05
+        )
+        
+        # Skipping progression association and coregulatory state identifications
         
 
     
@@ -546,7 +715,7 @@ class SpatialOmicsAnalyzer:
         self.compute_peptide_sparsity()
         self.diff_expression_test()
         self.generate_boxplots()
-        roi_stats = self.get_roi_stats
+        roi_stats = self.get_roi_stats()
         self.generate_spatial_heatmap(roi_stats)
         self.make_hierarchical_clusters(roi_stats)
         self.get_random_forest_ranking(roi_stats)
