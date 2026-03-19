@@ -19,19 +19,27 @@ import scanpy as sc
 from scipy.spatial.distance import cdist
 from scipy.sparse.csgraph import minimum_spanning_tree
 import networkx as nx 
+import time 
 
 '''
 TODO
--resolve natural log normalization issue with zeros, maybe do normalization after peptide filtering
+-DONE--resolve natural log normalization issue with zeros, maybe do normalization after peptide filtering
 -update roi_labels to be read from a json file at data_path rather than a passed argument 
 -optional: have spatial roi map be overlayed the H&E picture, this would require (or make this conditional on its existence) user to have a .png or .jpeg in data folder
 -DONE--create results folder in data_path then put all plots there
 -have user pass classes (or just read unique classes from roi_labels.json)--would need to update a couple functions where 'DCIS'/'IBC' are hardcoded (get_roi_map and diff_expression_test notably)
 -update plot formatting so all peptides are rounded to 3 decimals
--add some measure of duration? 
+-add some measure of pipeline duration? 
 -maybe: change get_random_forest_model_ranking to train random forest model on all peptides then rank them by their feature importance rather than one at a time (could also do both?)
 -tag results folder name with date and time so it's unique? 
 -add try except in allPipeline for non-critical/independent methods (ex. generate_boxplots)
+-fix plot formatting:
+    -DONE--some axes/titles get cut off (except for the boxplots...)
+    -after spatial heatmaps  are generated, every plot following spatial heatmaps have the heatmap color bar--I think I just have to 'turn off' that formatting after it is used
+    -y axis of dendrogram is labeled False, should just be blank
+    -y axis of forest barplot is labeled False, should be the peptides
+-Dr. Angel feedback: add numbers to boxplots 
+-edge case to fix: if all peptides are filtered out, then we get an error in generate boxplots, need to put an escape if all peptides are removed
 
 '''
 
@@ -119,8 +127,10 @@ class SpatialOmicsAnalyzer:
         plt.xlabel(None)
         plt.ylabel(None)
         plt.title('Spatial ROI Plot')
+        plt.tight_layout()
 
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/roi_map.png'))
+        sns.reset_orig()
 
         print('Spatial dot plot generation successful. Saved to: ', os.path.dirname(self.data_path))
         
@@ -211,7 +221,7 @@ class SpatialOmicsAnalyzer:
         print('Generating box plots for significant peptides...')
         n_peptides = len(self.good_peptides)
         n_cols = 5
-        n_rows = math.ceil(n_peptides/n_cols)
+        n_rows = math.ceil(n_peptides/n_cols) 
 
         fig, axs = plt.subplots(n_rows, n_cols, figsize=(n_cols*4, n_rows*4))        # Grid of box plots
         axs = axs.flatten()     # Flatten so indexing is easier
@@ -244,7 +254,7 @@ class SpatialOmicsAnalyzer:
 
         print('Box plots generation successful!')
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/sig_peptide_boxplots.png'))
-    
+        sns.reset_orig()
 
     def get_roi_stats(self):
         '''
@@ -285,12 +295,14 @@ class SpatialOmicsAnalyzer:
             heatmap = plt.figure()
             plt.scatter(roi_stats['x'], roi_stats['y'], 
                         c=roi_stats[peptide], cmap='RdBu_r', s=50)
-            plt.colorbar()
+            cb = plt.colorbar()
             plt.xlabel(False)
             plt.ylabel(False)
             plt.title(peptide)
+            plt.tight_layout()
             plt.savefig(os.path.join(os.path.dirname(self.data_path), f'results/heatmap_{peptide}.png'))
-        print('Spatial heatmap generation successful. Saved to: ', os.path.dirname(self.data_path))
+        print('Spatial heatmap generation successful.')
+        cb.remove()
         return roi_stats        
 
 
@@ -324,6 +336,7 @@ class SpatialOmicsAnalyzer:
         plt.legend(class_labels, ['DCIS', 'IBC', 'Normal'], bbox_to_anchor=(1.05, -0.25), loc= 'lower left')
 
         plt.title('ROI clusters based on peptide profile similarity')
+        plt.tight_layout()
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/dendrogram.png'))
 
         print('Dendrogram generation successful.')
@@ -363,7 +376,9 @@ class SpatialOmicsAnalyzer:
         plt.title('Peptide discrimination score in random forest models')
         plt.xlabel('OOB score')
         plt.xlim(0,1)
-        
+        plt.yticks(sorted_peptides)
+        plt.tight_layout()
+
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/forest_barplot.png'))
         print('Bar plot generation successful.')
 
@@ -374,7 +389,7 @@ class SpatialOmicsAnalyzer:
         and attached per-pixel metadata (ROI, class, x-coord, y-coord). This object is used as the input for PCA and UMAP analysis. 
         
         Returns: 
-            ann_obj (AnnData): shape (n_pixels, n_peptides), with obs metadata and var peptide index.
+            ann_obj (AnnData): X (n_pixels, n_peptides), obs metadata, and var peptide index.
         
         '''
         print('Constructing AnnData object...')
@@ -433,7 +448,7 @@ class SpatialOmicsAnalyzer:
         print('Running PCA...') 
         sc.pp.pca(self.ann_obj, n_comps=n_comps)
         
-        print('Running UMAP analysis...')
+        print('Running UMAP analysis; this may take a while...')
         sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=n_comps)
         sc.tl.umap(self.ann_obj)
         
@@ -549,7 +564,7 @@ class SpatialOmicsAnalyzer:
     
 ##### Entire pipeline ##### 
     def allPipeline(self):
-        # Create results folder in data's parent folder
+        start = time.time()
         os.makedirs((os.path.join(os.path.dirname(self.data_path), 'results')), exist_ok=True)
         self.filter_rois()
         self.get_roi_map()
@@ -565,4 +580,6 @@ class SpatialOmicsAnalyzer:
         self.run_pixel_analysis()
         self.compute_mst()
         #self.run_pseudotime_scimitar()
-        
+        end = time.time()
+        duration = (end-start) // 60    # in minutes
+        print(f'Pipeline processing complete. Total duration: {duration} minutes')
