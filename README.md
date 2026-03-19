@@ -17,7 +17,7 @@ pip install https://github.com/bgerd02/spatial-proteomics-analyzer.git
 
 ## Usage 
 
-1. Copy usage_proAnalyzer.py and change the DATA_PATH variable to the path to your spreadsheet
+1. Copy usage_proAnalyzer.py and change the DATA_PATH constant to the path to your spreadsheet.
 2. Create a .json file with a class listed for every ROI. Make sure the names of the ROIs match the names of the sheets in the spreadsheet. You may copy the example json file and replace it with your information. This json file should be in the same directory as the spreadsheet. 
 3. With the virtual environment activated, run the usage script: 
 ```python
