@@ -23,30 +23,29 @@ import time
 
 '''
 TODO
--DONE--resolve natural log normalization issue with zeros, maybe do normalization after peptide filtering
 -update roi_labels to be read from a json file at data_path rather than a passed argument 
 -optional: have spatial roi map be overlayed the H&E picture, this would require (or make this conditional on its existence) user to have a .png or .jpeg in data folder
--DONE--create results folder in data_path then put all plots there
 -have user pass classes (or just read unique classes from roi_labels.json)--would need to update a couple functions where 'DCIS'/'IBC' are hardcoded (get_roi_map and diff_expression_test notably)
 -update plot formatting so all peptides are rounded to 3 decimals
--add some measure of pipeline duration? 
 -maybe: change get_random_forest_model_ranking to train random forest model on all peptides then rank them by their feature importance rather than one at a time (could also do both?)
 -tag results folder name with date and time so it's unique? 
 -add try except in allPipeline for non-critical/independent methods (ex. generate_boxplots)
--fix plot formatting:
-    -DONE--some axes/titles get cut off (except for the boxplots...)
-    -after spatial heatmaps  are generated, every plot following spatial heatmaps have the heatmap color bar--I think I just have to 'turn off' that formatting after it is used
-    -y axis of dendrogram is labeled False, should just be blank
-    -y axis of forest barplot is labeled False, should be the peptides
+-axes of dendrogram/fores barplot/heatmaps labeled False, should just be blank
 -Dr. Angel feedback: add numbers to boxplots 
--edge case to fix: if all peptides are filtered out, then we get an error in generate boxplots, need to put an escape if all peptides are removed
+-edge case to fix: if all peptides are filtered out, then we get an error in generate boxplots, need to put an escape if all peptides are removed/nonsignificant
+-separate box plots so they are saved individually rather than in array 
+-forest barplot not in Arial for some reason
+-change roi map so labels are larger and outside of dots
+-remove legend from forest barplot 
+-figure out why UMAP is taking so long
 
 '''
 
 class SpatialOmicsAnalyzer:
     def __init__(self, data_path, roi_labels):
         self.data_path = data_path
-        self.roi_labels = roi_labels        # Contains sheet name of each ROI and its label     # NOTE update it so it is reading through a json
+
+        self.roi_labels = roi_labels #json.load(open('data.json', 'roi_labels'))       # Contains sheet name of each ROI and its label     
         self.good_peptides = None
         self.ann_obj = None
         try: 
@@ -113,7 +112,7 @@ class SpatialOmicsAnalyzer:
                 
             # Generate colored scatter plot
         sns.scatterplot(data=roi_stats, x='x', y='y', 
-                        hue='class', palette={'DCIS':'dodgerblue', 'IBC':'orange', 'Normal':'green'},       ## NOTE would need to change to allow passed classes
+                        hue='class', palette={'DCIS':'dodgerblue', 'IBC':'orange', 'Normal':'green'},      
                         s=250
         )
         for x, y, roi in zip(roi_stats['x'], roi_stats['y'], roi_stats['roi']):
@@ -169,7 +168,7 @@ class SpatialOmicsAnalyzer:
     
     def normalize_intensities(self):
         '''
-        Natural log transforms peptide intensities. Zeros are replaced with NaN before log transform to avoid -inf values. 
+        Natural log transforms peptide intensities. Zeros are replaced with NaN before log transform to avoid -inf values. This function also rounds peptides to 3 decimals. 
         '''
         print('Normalizing intensities...')
         for region in self.roi_labels:
@@ -178,6 +177,14 @@ class SpatialOmicsAnalyzer:
             data[cols] = data[cols].replace(0,np.nan)
             data[cols] = np.log(data[cols])
             data[cols] = data[cols].replace(np.nan, 0)
+
+        # Round peptides to 3 decimals in self.data AND self.good_peptides
+        self.good_peptides = [round(p,3) for p in self.good_peptides]       # Round peptides to 3 decimals in good_peptides 
+        for region in self.roi_labels:
+            self.data[region].rename(
+                columns={p: round(p, 3) for p in self.data[region].columns[4:] if round(p, 3) in self.good_peptides},
+                inplace=True
+            )
         print('Normalization complete.')
 
 
@@ -208,6 +215,8 @@ class SpatialOmicsAnalyzer:
         results_df['qvalue_bh'] = q_values
         # Save peptides whose q value is <= 0.05
         self.good_peptides = results_df[results_df['qvalue_bh'] <= 0.05]['peptide'].tolist()
+        if not self.good_peptides: 
+            raise ValueError('No peptides were identified to be significant with 95 percent confidence. Pipeline stopped.') 
         print('Differential analysis complete. Significant peptides: ', self.good_peptides)
         print(f'{len(reject)} peptides removed: non-significant')
         
@@ -256,6 +265,7 @@ class SpatialOmicsAnalyzer:
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/sig_peptide_boxplots.png'))
         sns.reset_orig()
 
+
     def get_roi_stats(self):
         '''
         Calculates spatial centroid for each roi and the mean for every peptide in each roi. 
@@ -296,8 +306,8 @@ class SpatialOmicsAnalyzer:
             plt.scatter(roi_stats['x'], roi_stats['y'], 
                         c=roi_stats[peptide], cmap='RdBu_r', s=50)
             cb = plt.colorbar()
-            plt.xlabel(False)
-            plt.ylabel(False)
+            plt.xlabel(None)
+            plt.ylabel(None)
             plt.title(peptide)
             plt.tight_layout()
             plt.savefig(os.path.join(os.path.dirname(self.data_path), f'results/heatmap_{peptide}.png'))
@@ -324,6 +334,7 @@ class SpatialOmicsAnalyzer:
         dend = dendrogram(linkage_data, labels=roi_stats['roi'].values)
  
         # Formatting
+        plt.rcParams['axes.prop_cycle'] = plt.cycler(color=['mediumorchid', 'lightcoral', 'lightblue'])
         color_map = {'DCIS': 'dodgerblue', 'IBC': 'orange', 'Normal': 'green'}
         leaf_order = dend['ivl']  # ROIs in dendrogram order
         label_colors = [color_map[roi_stats.set_index('roi').loc[roi, 'class']] for roi in leaf_order]
