@@ -18,7 +18,7 @@ import anndata as ad
 import scanpy as sc
 from scipy.spatial.distance import cdist
 from scipy.sparse.csgraph import minimum_spanning_tree
-import networkx as nx
+import networkx as nxwhy 
 
 ''' Example of roi_label format
 roi_labels = {
@@ -537,7 +537,7 @@ class SpatialProteomicsAnalyzer:
         
         # Skipping progression association and coregulatory state identifications
         
-
+'''
     
     
     
