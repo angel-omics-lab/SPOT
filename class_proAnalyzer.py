@@ -10,50 +10,57 @@ import os
 import math
 import seaborn as sns
 from sklearn.cluster import AgglomerativeClustering
-from scipy.cluster.hierarchy import dendrogram, linkage
-from sklearn.model_selection import train_test_split 
+from scipy.cluster.hierarchy import dendrogram, linkage 
+from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import scale
-import anndata as ad 
+import anndata as ad
 import scanpy as sc
 from scipy.spatial.distance import cdist
 from scipy.sparse.csgraph import minimum_spanning_tree
-import networkx as nxwhy 
+import networkx as nx 
+import time 
 
-''' Example of roi_label format
-roi_labels = {
-    'roi_1':'DCIS', 
-    'roi_2':'IBC', 
-    'roi_3':'Normal', 
-    .
-    .
-    . 
-}'''
+'''
+TODO
+-update roi_labels to be read from a json file at data_path rather than a passed argument 
+-optional: have spatial roi map be overlayed the H&E picture, this would require (or make this conditional on its existence) user to have a .png or .jpeg in data folder
+-have user pass classes (or just read unique classes from roi_labels.json)--would need to update a couple functions where 'DCIS'/'IBC' are hardcoded (get_roi_map and diff_expression_test notably)
+-update plot formatting so all peptides are rounded to 3 decimals
+-maybe: change get_random_forest_model_ranking to train random forest model on all peptides then rank them by their feature importance rather than one at a time (could also do both?)
+-tag results folder name with date and time so it's unique? 
+-add try except in allPipeline for non-critical/independent methods (ex. generate_boxplots)
+-axes of dendrogram/fores barplot/heatmaps labeled False, should just be blank
+-Dr. Angel feedback: add numbers to boxplots 
+-edge case to fix: if all peptides are filtered out, then we get an error in generate boxplots, need to put an escape if all peptides are removed/nonsignificant
+-separate box plots so they are saved individually rather than in array 
+-forest barplot not in Arial for some reason
+-change roi map so labels are larger and outside of dots
+-remove legend from forest barplot 
+-figure out why UMAP is taking so long
 
-class SpatialProteomicsAnalyzer:
+'''
+
+class SpatialOmicsAnalyzer:
     def __init__(self, data_path, roi_labels):
         self.data_path = data_path
-        self.roi_labels = roi_labels        # Contains sheet name of each ROI and its label     # NOTE update it so it is reading through a json
+
+        self.roi_labels = roi_labels #json.load(open('data.json', 'roi_labels'))       # Contains sheet name of each ROI and its label     
         self.good_peptides = None
         self.ann_obj = None
         try: 
             self.data = pd.read_excel(data_path, sheet_name=None)
         except FileNotFoundError as e:
-            print('Issue loading spreadsheet, check passed file path')
+            print('Issue loading spreadsheet, check file path')
             print(e)
-        # Set plot formatting defaults    
+        # Univeral plot formatting
         plt.rcParams.update({
             'font.family': 'Arial',
-            'font.size': 12,
-            'axes.titlesize': 14,
-            'axes.labelsize': 12,
-            'figure.dpi': 150,
-            'axes.spines.top': False,
-            'axes.spines.right': False,
-    })
+            'font.size': 12 
+        })
+
         
-        
-    def load_and_preprocess(self):
+    def filter_rois(self):
         '''
         Load ROIs, filter out the ones with >25% 0s, then normalize the intensities via log transform
         
@@ -75,9 +82,6 @@ class SpatialProteomicsAnalyzer:
                 print(f'Removed {region} with {label} label from list: >25% zero intensities.')
             else: 
                 print(f'{region} accepted')
-                print(f'Normalizing intensities in {region}')
-                data.iloc[:, 4:] = np.log(data.iloc[:, 4:])  # Natural log intensities
-                ### NOTE save normalized intensities somewhere??
         for region in to_remove:
             del self.roi_labels[region] 
         print('ROI filtering complete. Filtered list: ', self.roi_labels.keys())
@@ -94,7 +98,8 @@ class SpatialProteomicsAnalyzer:
         ''' 
         print('Generating spatial dot plot for regions...')
         # Calculate spatial centroid of each roi
-            # Concatenate all ROI sheets, tagging each row with its ROI label
+        
+        # Concatenate all ROI sheets, tagging each row with its ROI label
         combined = pd.concat(
             [df.assign(roi=roi) for roi, df in self.data.items() if roi in self.roi_labels],
             ignore_index=True
@@ -107,7 +112,7 @@ class SpatialProteomicsAnalyzer:
                 
             # Generate colored scatter plot
         sns.scatterplot(data=roi_stats, x='x', y='y', 
-                        hue='class', palette={'DCIS':'dodgerblue', 'IBC':'orange', 'Normal':'green'},       ## NOTE would need to change to allow passed classes
+                        hue='class', palette={'DCIS':'dodgerblue', 'IBC':'orange', 'Normal':'green'},      
                         s=250
         )
         for x, y, roi in zip(roi_stats['x'], roi_stats['y'], roi_stats['roi']):
@@ -121,14 +126,16 @@ class SpatialProteomicsAnalyzer:
         plt.xlabel(None)
         plt.ylabel(None)
         plt.title('Spatial ROI Plot')
+        plt.tight_layout()
 
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'roi_map.png'))
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/roi_map.png'))
+        sns.reset_orig()
 
         print('Spatial dot plot generation successful. Saved to: ', os.path.dirname(self.data_path))
         
     
 
-    def compute_peptide_sparsity(self): 
+    def peptide_sparsity_filter(self): 
         '''
         Removes peptides only sparsely expressed across ROIs. Those with <20% expression in >10% of ROIs are removed. 
 
@@ -159,13 +166,32 @@ class SpatialProteomicsAnalyzer:
         print('Peptide filtering complete. Filtered list: ', self.good_peptides)
         return [float(p) for p in self.good_peptides]
     
-    
+    def normalize_intensities(self):
+        '''
+        Natural log transforms peptide intensities. Zeros are replaced with NaN before log transform to avoid -inf values. This function also rounds peptides to 3 decimals. 
+        '''
+        print('Normalizing intensities...')
+        for region in self.roi_labels:
+            data = self.data[region]
+            cols = [p for p in self.good_peptides if p in data.columns]
+            data[cols] = data[cols].replace(0,np.nan)
+            data[cols] = np.log(data[cols])
+            data[cols] = data[cols].replace(np.nan, 0)
+
+        # Round peptides to 3 decimals in self.data AND self.good_peptides
+        self.good_peptides = [round(p,3) for p in self.good_peptides]       # Round peptides to 3 decimals in good_peptides 
+        for region in self.roi_labels:
+            self.data[region].rename(
+                columns={p: round(p, 3) for p in self.data[region].columns[4:] if round(p, 3) in self.good_peptides},
+                inplace=True
+            )
+        print('Normalization complete.')
 
 
     def diff_expression_test(self): 
         '''
         Identifies peptides that have differential expression between classes (in this instance DCIS v IBC) via 
-        Kruskal-Wallis test with Benjamini-Hochberg FDR validation. Generates a boxplot of 
+        Kruskal-Wallis test with Benjamini-Hochberg FDR validation.
         
         Returns:
             good_peptides(list) updated so it is now only those differentially expressed.
@@ -174,7 +200,6 @@ class SpatialProteomicsAnalyzer:
         # Identify significant peptide 
         print('Identifying differentially expressed peptides...')
         for peptide in self.good_peptides:
-            # NOTE would need to update 'DCIS' and 'IBC' to allow for uniquely passed classes
             group1 = [self.data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']     # Mean intensities of peptide in DCIS (class 1) rois        
             group2 = [self.data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'IBC']      # Mean Intensities of peptide in IBC (class 2) rois
             # Run KW
@@ -182,14 +207,16 @@ class SpatialProteomicsAnalyzer:
             # Add to data frame 
             results_list.append({
             'peptide': peptide, 
-            'pvalue_ols': p_value
+            'pvalue_kw': p_value
             })
         results_df = pd.DataFrame(results_list) 
         # Run BH FDR, add q val to df 
-        reject, q_values, _, _ = multipletests(results_df['pvalue_ols'], alpha=0.05, method='fdr_bh')
+        reject, q_values, _, _ = multipletests(results_df['pvalue_kw'], alpha=0.05, method='fdr_bh')
         results_df['qvalue_bh'] = q_values
         # Save peptides whose q value is <= 0.05
-        self.good_peptides = self.good_peptides = results_df[results_df['qvalue_bh'] <= 0.05]['peptide'].tolist()
+        self.good_peptides = results_df[results_df['qvalue_bh'] <= 0.05]['peptide'].tolist()
+        if not self.good_peptides: 
+            raise ValueError('No peptides were identified to be significant with 95 percent confidence. Pipeline stopped.') 
         print('Differential analysis complete. Significant peptides: ', self.good_peptides)
         print(f'{len(reject)} peptides removed: non-significant')
         
@@ -200,24 +227,23 @@ class SpatialProteomicsAnalyzer:
         Takes the good_peptides list and generates a grid of boxplots where each boxplot compares mean intensities between 2 classes for each peptide. 
         In this case, the two classes we choose are IBC and DCIS, but this can be changed. 
         '''
-        data=pd.read_excel(self.data_path, sheet_name=None)
         print('Generating box plots for significant peptides...')
         n_peptides = len(self.good_peptides)
         n_cols = 5
-        n_rows = math.ceil(n_peptides/n_cols)
+        n_rows = math.ceil(n_peptides/n_cols) 
 
         fig, axs = plt.subplots(n_rows, n_cols, figsize=(n_cols*4, n_rows*4))        # Grid of box plots
         axs = axs.flatten()     # Flatten so indexing is easier
         # Give overall plot name, axis, legend 
         for i, peptide in enumerate(self.good_peptides):
             plot_data = (
-                [{'Intensity': val, 'Class':'DCIS'} for val in [data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'DCIS' ]]
+                [{'Intensity': val, 'Class':'DCIS'} for val in [self.data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'DCIS' ]]
                 +
-                [{'Intensity': val, 'Class':'IBC'} for val in [data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'IBC' ]]
+                [{'Intensity': val, 'Class':'IBC'} for val in [self.data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'IBC' ]]
             )
             plot_df = pd.DataFrame(plot_data)
 
-            sns.boxplot(data=plot_df, x='Class', y='', 
+            sns.boxplot(data=plot_df, x='Class', y='Intensity', 
                         hue='Class', palette={'DCIS':'dodgerblue', 'IBC':'orange'},
                          ax=axs[i], legend=False
             )
@@ -235,9 +261,10 @@ class SpatialProteomicsAnalyzer:
         fig.supylabel('ln(Mean Intensity)')
         fig.tight_layout()
 
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'sig_peptide_boxplots.png'))
-        plt.show()
-    
+        print('Box plots generation successful!')
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/sig_peptide_boxplots.png'))
+        sns.reset_orig()
+
 
     def get_roi_stats(self):
         '''
@@ -248,7 +275,7 @@ class SpatialProteomicsAnalyzer:
             roi_stats (np array) contains roi name, spatial centroid (x & y), class, and means for every peptide
                 roi_stats is used as an argument in generate_spatial_heatmap and get_hierarchical_clusters
         '''
-        print('Generating heatmaps for each peptide...')
+        print('Calculating spatial centroids for each ROI...')
         # Calculate spatial centroid of each roi
             # Concatenate all ROI sheets, tagging each row with its ROI label
         combined = pd.concat(
@@ -260,6 +287,7 @@ class SpatialProteomicsAnalyzer:
         roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
         roi_stats['class'] = roi_stats['roi'].map(self.roi_labels)
 
+        print('ROI calculations successful!')
         return roi_stats
 
 
@@ -277,12 +305,14 @@ class SpatialProteomicsAnalyzer:
             heatmap = plt.figure()
             plt.scatter(roi_stats['x'], roi_stats['y'], 
                         c=roi_stats[peptide], cmap='RdBu_r', s=50)
-            plt.colorbar()
-            plt.xlabel(False)
-            plt.ylabel(False)
+            cb = plt.colorbar()
+            plt.xlabel(None)
+            plt.ylabel(None)
             plt.title(peptide)
-            plt.savefig(os.path.join(os.path.dirname(self.data_path), f'heatmap_{peptide}.png'))
-        print('Spatial heatmap generation successful. Saved to: ', os.path.dirname(self.data_path))
+            plt.tight_layout()
+            plt.savefig(os.path.join(os.path.dirname(self.data_path), f'results/heatmap_{peptide}.png'))
+        print('Spatial heatmap generation successful.')
+        cb.remove()
         return roi_stats        
 
 
@@ -302,11 +332,10 @@ class SpatialProteomicsAnalyzer:
         print('Constructing dendrogram for visualization...')
         linkage_data = linkage(feature_matrix, method='ward', metric='euclidean')
         dend = dendrogram(linkage_data, labels=roi_stats['roi'].values)
-        ax = plt.gca()
  
         # Formatting
+        plt.rcParams['axes.prop_cycle'] = plt.cycler(color=['mediumorchid', 'lightcoral', 'lightblue'])
         color_map = {'DCIS': 'dodgerblue', 'IBC': 'orange', 'Normal': 'green'}
-        label_colors = [color_map[c] for c in roi_stats.set_index('roi').loc[roi_stats['roi']]['class']]
         leaf_order = dend['ivl']  # ROIs in dendrogram order
         label_colors = [color_map[roi_stats.set_index('roi').loc[roi, 'class']] for roi in leaf_order]
         ax = plt.gca()
@@ -318,8 +347,11 @@ class SpatialProteomicsAnalyzer:
         plt.legend(class_labels, ['DCIS', 'IBC', 'Normal'], bbox_to_anchor=(1.05, -0.25), loc= 'lower left')
 
         plt.title('ROI clusters based on peptide profile similarity')
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'dendrogram.png'))
-        plt.show()
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/dendrogram.png'))
+
+        print('Dendrogram generation successful.')
+
 
 
     def get_random_forest_ranking(self, roi_stats):
@@ -355,9 +387,11 @@ class SpatialProteomicsAnalyzer:
         plt.title('Peptide discrimination score in random forest models')
         plt.xlabel('OOB score')
         plt.xlim(0,1)
-        print('Saving bar plot to ', self.data_path)
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'forest_barplot.png'))
-        plt.show()
+        plt.yticks(sorted_peptides)
+        plt.tight_layout()
+
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/forest_barplot.png'))
+        print('Bar plot generation successful.')
 
 
     def create_anndata_object(self):
@@ -366,7 +400,7 @@ class SpatialProteomicsAnalyzer:
         and attached per-pixel metadata (ROI, class, x-coord, y-coord). This object is used as the input for PCA and UMAP analysis. 
         
         Returns: 
-            ann_obj (AnnData): shape (n_pixels, n_peptides), with obs metadata and var peptide index.
+            ann_obj (AnnData): X (n_pixels, n_peptides), obs metadata, and var peptide index.
         
         '''
         print('Constructing AnnData object...')
@@ -425,16 +459,17 @@ class SpatialProteomicsAnalyzer:
         print('Running PCA...') 
         sc.pp.pca(self.ann_obj, n_comps=n_comps)
         
-        print('Running UMAP analysis...')
+        print('Running UMAP analysis; this may take a while...')
         sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=n_comps)
         sc.tl.umap(self.ann_obj)
         
         print('Generating PCA and UMAP figures...')
         sc.pl.pca(self.ann_obj, color='class', 
-                  save=os.path.join(os.path.dirname(self.data_path), 'pca.png'))
+                  save=os.path.join(os.path.dirname(self.data_path), 'results/pca.png'))
+        print('PCA plot generated successfully.')
         sc.pl.umap(self.ann_obj, color='class', 
-                  save=os.path.join(os.path.dirname(self.data_path), 'umap.png'))
-        print('Figures saved to ', self.data_path)
+                  save=os.path.join(os.path.dirname(self.data_path), 'results/umap.png'))
+        print('UMAP plot generated successfully.')
 
     
     def compute_mst(self):
@@ -481,23 +516,17 @@ class SpatialProteomicsAnalyzer:
         }
             
 
-    def run_pseudotime_tscan(self):
+
+
+    def run_pseudotime_scimitar(self):
         '''
         Runs SCIMITAR pseudotime analysis. 
-        Step 1 : Create metastable state graph to seed MGM 
-        Step 2: Create and refine MGM
-        
         '''
         import scimitar.models 
         import scimitar.plotting
         import scimitar.morphing_mixture as mm
         import scimitar.differential_analysis 
         from collections import defaultdict
-
-
-    def run_pseudotime_slingshot(self):
-        '''
-        Runs Slingshot pseudotime analysis. 
         
         # Step 1: Create metastable graph, then save outputs 
         metastable_graph, bootstrap_replicates, edge_fractions = scimitar.models.get_gmm_bootstrapped_metastable_graph(
@@ -546,9 +575,12 @@ class SpatialProteomicsAnalyzer:
     
 ##### Entire pipeline ##### 
     def allPipeline(self):
-        self.load_and_preprocess()
+        start = time.time()
+        os.makedirs((os.path.join(os.path.dirname(self.data_path), 'results')), exist_ok=True)
+        self.filter_rois()
         self.get_roi_map()
-        self.compute_peptide_sparsity()
+        self.peptide_sparsity_filter()
+        self.normalize_intensities()
         self.diff_expression_test()
         self.generate_boxplots()
         roi_stats = self.get_roi_stats()
@@ -558,5 +590,7 @@ class SpatialProteomicsAnalyzer:
         self.create_anndata_object()
         self.run_pixel_analysis()
         self.compute_mst()
-        self.run_pseudotime_scimitar()
-        
+        #self.run_pseudotime_scimitar()
+        end = time.time()
+        duration = (end-start) // 60    # in minutes
+        print(f'Pipeline processing complete. Total duration: {duration} minutes')
