@@ -11,7 +11,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import scale
 import anndata as ad
-#import scanpy as sc
 import scanpy as sc
 from scipy.spatial.distance import cdist
 from scipy.sparse.csgraph import minimum_spanning_tree
@@ -20,8 +19,8 @@ import networkx as nx
 
 # plt.rcParams(font='Arial')
 
-DATA_PATH = r'C:\Users\AngelLab\Documents\GitHub\spatial-proteomics-analyzer\fake_data_for_testing.xlsx'
-# DATA_PATH = '/Users/bryngerding/Documents/GitHub/spatial-proteomics-analyzer/fake_data_for_testing.xlsx'
+# DATA_PATH = r'C:\Users\AngelLab\Documents\GitHub\spatial-proteomics-analyzer\fake_data_for_testing.xlsx'
+DATA_PATH = '/Users/bryngerding/Documents/GitHub/spatial-proteomics-analyzer/fake_data_for_testing.xlsx'
 data = pd.read_excel(DATA_PATH, sheet_name=None)
 
 roi_labels = {
@@ -365,6 +364,7 @@ from collections import defaultdict
 # bootstrap_replicates : raw record of all bootstrapping runs 
 # edge_fractions : derived from replicates, for each pair of states, gives fraction of runs that found connection sig (i.e. confidence score of edge, also sig if assessed by Cohen's d)
 # NOTE GMM is fit once to the full data to define states, then bootstrapping is done to get edge confidence 
+print('Constructing metastable graph...')
 metastable_graph, bootstrap_replicates, edge_fractions = scimitar.models.get_gmm_bootstrapped_metastable_graph(
     ann_obj.X, 
     n_boot = 20, 
@@ -373,6 +373,7 @@ metastable_graph, bootstrap_replicates, edge_fractions = scimitar.models.get_gmm
 metastable_graph.edge_weights = edge_fractions     # store confidence scores on graph object--done so plotting function can later use thickness to show how supported the edge is
 
 # Plot and capture outputs
+print('Plotting metastable graph...')
 plt.figure()
 state_colors, embedding = scimitar.plotting.plot_metastable_graph(
     ann_obj.X, 
@@ -450,80 +451,82 @@ plt.show()
 
 
 ##### generate MST ######
-print('Computing MST...')
-# Compute roi centroids in pca space
-n_comps = ann_obj.obsm['X_pca'].shape[1]
-pca_df = pd.DataFrame(
-    ann_obj.obsm['X_pca'], 
-    index = ann_obj.obs_names, 
-    columns=[f'PC{i+1}' for i in range(n_comps)]
-)
-pca_df['sample']=ann_obj.obs['sample'].values
-centroids_pca = pca_df.groupby('sample').mean()
+# print('Computing MST...')
+# # Compute roi centroids in pca space
+# n_comps = ann_obj.obsm['X_pca'].shape[1]
+# pca_df = pd.DataFrame(
+#     ann_obj.obsm['X_pca'], 
+#     index = ann_obj.obs_names, 
+#     columns=[f'PC{i+1}' for i in range(n_comps)]
+# )
+# pca_df['sample']=ann_obj.obs['sample'].values
+# centroids_pca = pca_df.groupby('sample').mean()
         
-# Build mst on centroids
-dist_matrix = cdist(centroids_pca.values, centroids_pca.values, metric='euclidean')     # Gets Eucl. distance between every ROI centroid pair in PCA space
-mst_sparse = minimum_spanning_tree(dist_matrix)         # Actual MST algorithm -- finding edge subset that minimizes total distance, outputs sparse matrix identifying those edges
+# # Build mst on centroids
+# dist_matrix = cdist(centroids_pca.values, centroids_pca.values, metric='euclidean')     # Gets Eucl. distance between every ROI centroid pair in PCA space
+# mst_sparse = minimum_spanning_tree(dist_matrix)         # Actual MST algorithm -- finding edge subset that minimizes total distance, outputs sparse matrix identifying those edges
         
-graph = nx.from_scipy_sparse_array(mst_sparse)      # Converts sparse matrix into graph object 
-roi_names = list(centroids_pca.index)
-mst_graph = nx.relabel_nodes(graph, {i: name for i, name in enumerate(roi_names)})      # Swaps default node names for actual ROIs
+# graph = nx.from_scipy_sparse_array(mst_sparse)      # Converts sparse matrix into graph object 
+# roi_names = list(centroids_pca.index)
+# mst_graph = nx.relabel_nodes(graph, {i: name for i, name in enumerate(roi_names)})      # Swaps default node names for actual ROIs
         
-print(f'MST built with {mst_graph.number_of_nodes()} nodes and {mst_graph.number_of_edges()} edges')
+# print(f'MST built with {mst_graph.number_of_nodes()} nodes and {mst_graph.number_of_edges()} edges')
         
-# Add MST data to ann_obj
-ann_obj.uns['mst'] = {
-    'graph': mst_graph, 
-    'centroids' : centroids_pca
-}
+# # Add MST data to ann_obj
+# ann_obj.uns['mst'] = {
+#     'graph': mst_graph, 
+#     'centroids' : centroids_pca
+# }
 
 
-##### plot UMAP w MST overlaid #####
-mst_graph = ann_obj.uns['mst']['graph']
-umap_coords = ann_obj.obsm['X_umap']
+# ##### plot UMAP w MST overlaid #####
+# mst_graph = ann_obj.uns['mst']['graph']
+# umap_coords = ann_obj.obsm['X_umap']
 
-# Project each roi centroid into umap space
-umap_df = pd.DataFrame(umap_coords, columns=['UMAP1', 'UMAP2'])
-umap_df['sample'] = ann_obj.obs['sample'].values
-umap_df['class'] = ann_obj.obs['class'].values
+# # Project each roi centroid into umap space
+# umap_df = pd.DataFrame(umap_coords, columns=['UMAP1', 'UMAP2'])
+# umap_df['sample'] = ann_obj.obs['sample'].values
+# umap_df['class'] = ann_obj.obs['class'].values
 
-centroids_umap = umap_df.groupby('sample')[['UMAP1', 'UMAP2']].mean()
-centroids_umap['class'] = umap_df.groupby('sample')['class'].first()
+# centroids_umap = umap_df.groupby('sample')[['UMAP1', 'UMAP2']].mean()
+# centroids_umap['class'] = umap_df.groupby('sample')['class'].first()
 
 
-# Build edge lines from mst graph
-edge_lines = []
-for u, v in mst_graph.edges():
-    if u in centroids_umap.index and v in centroids_umap.index:
-        edge_lines.append({
-            'x': [centroids_umap.loc[u, 'UMAP1'], centroids_umap.loc[v, 'UMAP1']], 
-            'y': [centroids_umap.loc[u, 'UMAP2'], centroids_umap.loc[v, 'UMAP2']],
-        })
+# # Build edge lines from mst graph
+# edge_lines = []
+# for u, v in mst_graph.edges():
+#     if u in centroids_umap.index and v in centroids_umap.index:
+#         edge_lines.append({
+#             'x': [centroids_umap.loc[u, 'UMAP1'], centroids_umap.loc[v, 'UMAP1']], 
+#             'y': [centroids_umap.loc[u, 'UMAP2'], centroids_umap.loc[v, 'UMAP2']],
+#         })
 
-# Plot
-color_map = {'DCIS': 'dodgerblue', 'IBC': 'orange', 'Normal': 'green'}
-fig, ax = plt.subplots(figsize=(8,6))
+# # Plot
+# color_map = {'DCIS': 'dodgerblue', 'IBC': 'orange', 'Normal': 'green'}
+# fig, ax = plt.subplots(figsize=(8,6))
 
-#Pixel cloud
-for cls, grp in umap_df.groupby('class'):
-    ax.scatter(grp['UMAP1'], grp['UMAP2'], 
-               c=color_map[cls], s=1, alpha=0.3, label=cls, rasterized=True)
-# MST edges
-for edge in edge_lines:
-    ax.plot(edge['x'], edge['y'], 'k-', linewidth=1.5, zorder=3)
-# ROI centroids
-for roi, row in centroids_umap.iterrows():
-    ax.scatter(row['UMAP1'], row['UMAP2'], 
-               c=color_map[row['class']], s=80, edgecolors='black', 
-               linewidths=0.8, zorder=4)
-    ax.annotate(roi.replace('ROI_', ''), (row['UMAP1'], row['UMAP2']), 
-                fontsize=6, ha='center', va='bottom', 
-                xytext=(0,5), textcoords='offset points')
-# Formatting
-ax.legend(markerscale=5, framealpha=0.7)
-ax.set_xlabel('UMAP 1')
-ax.set_ylabel('UMAP 2')
-ax.set_title('Pixel UMAP with MST trajectory')
-plt.tight_layout()
-#plt.savefig(os.path.join.dirname(data_path), 'umap_mst.png')
-plt.show()
+# #Pixel cloud
+# for cls, grp in umap_df.groupby('class'):
+#     ax.scatter(grp['UMAP1'], grp['UMAP2'], 
+#                c=color_map[cls], s=1, alpha=0.3, label=cls, rasterized=True)
+# # MST edges
+# for edge in edge_lines:
+#     ax.plot(edge['x'], edge['y'], 'k-', linewidth=1.5, zorder=3)
+# # ROI centroids
+# for roi, row in centroids_umap.iterrows():
+#     ax.scatter(row['UMAP1'], row['UMAP2'], 
+#                c=color_map[row['class']], s=80, edgecolors='black', 
+#                linewidths=0.8, zorder=4)
+#     ax.annotate(roi.replace('ROI_', ''), (row['UMAP1'], row['UMAP2']), 
+#                 fontsize=6, ha='center', va='bottom', 
+#                 xytext=(0,5), textcoords='offset points')
+# # Formatting
+# ax.legend(markerscale=5, framealpha=0.7)
+# ax.set_xlabel('UMAP 1')
+# ax.set_ylabel('UMAP 2')
+# ax.set_title('Pixel UMAP with MST trajectory')
+# plt.tight_layout()
+# #plt.savefig(os.path.join.dirname(data_path), 'umap_mst.png')
+# plt.show()
+
+
