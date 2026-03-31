@@ -1,6 +1,6 @@
 # README
 
-SPOT (Spatial Omics Toolkit) is an end-to-end spatial omics pipeline 
+SPOT (Spatial Omics Toolkit) is an end-to-end spatial omics pipeline. It takes an excel spreadsheet where each sheet correlates to a different ROI of a tissue as well as a json file that classifies each ROI.  
 
 ## Installation (in your terminal; will only do this once)
 
