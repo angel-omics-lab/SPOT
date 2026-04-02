@@ -38,7 +38,8 @@ TODO
 -change roi map so labels are larger and outside of dots
 -remove legend from forest barplot 
 -figure out why UMAP is taking so long
-
+-remove 'class' title from pca/umap plots
+-add points into box plots so can visualize potential clusters
 '''
 
 class SpatialOmicsAnalyzer:
@@ -165,6 +166,7 @@ class SpatialOmicsAnalyzer:
 
         print('Peptide filtering complete. Filtered list: ', self.good_peptides)
         return [float(p) for p in self.good_peptides]
+    
     
     def normalize_intensities(self):
         '''
@@ -435,7 +437,7 @@ class SpatialOmicsAnalyzer:
         print('AnnData object created successfully. Shape:', self.ann_obj.shape)
     
     
-    def run_pixel_analysis(self):
+    def run_pixel_dim_reduction(self):
         '''
         Runs PCA and UMAP on a pixel-level AnnData object then saves the resulting plots, colored by class label. 
         We use scanpy rather than sklearn because it saves computational time when identifying num of PCs to retain. 
@@ -518,55 +520,11 @@ class SpatialOmicsAnalyzer:
 
 
 
-    def run_pseudotime_scimitar(self):
+    def run_pseudotime_slingshot(self):
         '''
-        Runs SCIMITAR pseudotime analysis. 
+        Runs Slingshot pseudotime reconstruction. 
         '''
-        import scimitar.models 
-        import scimitar.plotting
-        import scimitar.morphing_mixture as mm
-        import scimitar.differential_analysis 
-        from collections import defaultdict
         
-        # Step 1: Create metastable graph, then save outputs 
-        metastable_graph, bootstrap_replicates, edge_fractions = scimitar.models.get_gmm_bootstrapped_metastable_graph(
-            self.ann_obj.X, 
-            n_boot = 20, 
-            covariance_type = 'diag'
-        )  
-        metastable_graph.edge_weights = edge_fractions
-        
-        state_colors, embedding = scimitar.plotting.plot_metastable_graph(
-            self.ann_obj.X, 
-            metastable_graph, 
-            edge_weights=edge_fractions
-        )
-        self.ann_obj.obs['metastable_state'] = state_colors
-        self.ann_obj.obsm['X_metastable'] = embedding
-        
-        # Step 2: Create and refine MGM 
-        transition_model, analyzed_indices = metastable_graph.fit_transition_model(self.ann_obj.X, states=['dodgerblue', 'orange', 'green'])
-            
-            # Refine
-        transition_model = mm.morphing_gaussian_from_embedding(self.ann_obj.X, 
-            fit_type='spline', 
-            degree=3, 
-            step_size=0.07,
-            cov_estimator='corpcor', 
-            cov_reg=0.05
-        )
-            
-            # Plot refined model 
-        refined_transition_model, refined_pseudotimes = transition_model.refine(self.ann_obj.X, 
-            max_iter=3, 
-            step_size=0.07, 
-            cov_estimator='corpcor', 
-            cov_reg=0.05
-        )
-        
-        # Skipping progression association and coregulatory state identifications
-        
-
     
     
     
@@ -588,9 +546,9 @@ class SpatialOmicsAnalyzer:
         self.make_hierarchical_clusters(roi_stats)
         self.get_random_forest_ranking(roi_stats)
         self.create_anndata_object()
-        self.run_pixel_analysis()
+        self.run_pixel_dim_reduction()
         self.compute_mst()
-        #self.run_pseudotime_scimitar()
+        #self.run_pseudotime_slingshot()
         end = time.time()
         duration = (end-start) // 60    # in minutes
-        print(f'Pipeline processing complete. Total duration: {duration} minutes')
+        print(f'Pipeline processing complete. Total duration: {duration:.2f} minutes')
