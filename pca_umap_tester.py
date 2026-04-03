@@ -8,7 +8,7 @@ import json
 from sklearn.preprocessing import scale
 import matplotlib.pyplot as plt 
 
-DATA_PATH = r'C:\Users\AngelLab\Documents\GitHub\spatial-proteomics-analyzer\fake_data_for_testing.xlsx'
+DATA_PATH = r'C:\Users\AngelLab\Documents\GitHub\spatial-proteomics-analyzer\usage\fake_data_for_testing.xlsx'
 data = pd.read_excel(DATA_PATH, sheet_name=None)
 
 roi_labels = {
@@ -148,27 +148,75 @@ class_colors = {
 }
 point_colors = ann_obj.obs['class'].map(class_colors).values
 
-# Plot UMAP as scatterplot
+# # Plot UMAP as scatterplot
+# fig, ax = plt.subplots()
+# scatter = ax.scatter(
+#     ann_obj.obsm['X_umap'][:,0], 
+#     ann_obj.obsm['X_umap'][:,1],
+#     c=point_colors, 
+#     s=5
+# )
+# plt.colorbar(scatter, ax=ax)
+
+# # Overlay slingshot curves
+# for curve in slingshot.curves:
+#     points = curve.points
+#     ax.plot(points[:,0], points[:,1], color='black', linewidth=2)
+# ax.set_xlabel('UMAP1')
+# ax.set_ylabel('UMAP2')
+# plt.show()
+
+
+# 4c: Add ROI centroids to umap with curves
 fig, ax = plt.subplots()
+# Compute ROI centroids in UMAP space
+umap_coords = ann_obj.obsm['X_umap']
+ann_obj.obs['umap1'] = umap_coords[:, 0]
+ann_obj.obs['umap2'] = umap_coords[:, 1]
+
+roi_centroids = ann_obj.obs.groupby('sample')[['umap1', 'umap2']].mean()
+
+# Get class for each ROI so centroids can be colored to match
+roi_class = ann_obj.obs.groupby('sample')['class'].first()
+centroid_colors = roi_class.map(class_colors).values
+
+
 scatter = ax.scatter(
     ann_obj.obsm['X_umap'][:,0], 
     ann_obj.obsm['X_umap'][:,1],
     c=point_colors, 
     s=5
 )
-plt.colorbar(scatter, ax=ax)
 
-# Overlay slingshot curves
+# Overlay centroids
+ax.scatter(
+    roi_centroids['umap1'],
+    roi_centroids['umap2'],
+    c=centroid_colors,
+    s=80,           # larger so they're visible over the pixel scatter
+    edgecolors='black',
+    linewidths=0.8,
+    zorder=5        # draw on top of pixel scatter and curves
+)
+
+# Label each centroid with its ROI name
+for roi, row in roi_centroids.iterrows():
+    ax.annotate(
+        roi,
+        xy=(row['umap1'], row['umap2']),
+        fontsize=7,
+        ha='center',
+        va='bottom',
+        xytext=(0, 5),
+        textcoords='offset points'
+    )
 for curve in slingshot.curves:
     points = curve.points
     ax.plot(points[:,0], points[:,1], color='black', linewidth=2)
+
 ax.set_xlabel('UMAP1')
 ax.set_ylabel('UMAP2')
 plt.show()
-
-
-# 4c: Add ROI centroids to umap with curves
-
 
 print('Pseudotime reconstruction complete.')
 
