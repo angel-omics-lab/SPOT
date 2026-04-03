@@ -276,22 +276,11 @@ class SpatialOmicsAnalyzer:
                 palette={'DCIS':'dodgerblue', 'IBC':'orange'}
             )
 
-            sns.stripplot(
-                data=plot_df, 
-                x='Class',
-                y='ln(Intensity)',
-                color='black',
-                size=4,
-                jitter=True,
-                alpha=0.6, 
-                ax=ax
-            )
-
-            # ax.set_title(peptide)
-            # ax.set_ylabel('ln(Median Intensity)')
-            # ax.set_xlabel('')
-            # ax.legend_ = None
-            # plt.tight_layout()
+            ax.set_title(peptide)
+            ax.set_ylabel('ln(Median Intensity)')
+            ax.set_xlabel('')
+            ax.legend_ = None
+            plt.tight_layout()
 
             plt.savefig(os.path.join(os.path.dirname(self.data_path), f'results/boxplot_{peptide}.png'))
             plt.close()
@@ -577,7 +566,7 @@ class SpatialOmicsAnalyzer:
         print('Running pseudotime reconstruction. This may take a while...')
         # Step 1: Clustering
         sc.pp.neighbors(self.ann_obj, use_rep='X_umap', n_neighbors=15)     # Overwrite the neighbor graph to be based in UMAP space, making leiden clusters more coherent
-        sc.tl.leiden(self.ann_obj, resolution=0.15)     # resolution up - more clusters V down = fewer clusters, ideally want # clusters to = # disease stages
+        sc.tl.leiden(self.ann_obj, resolution=0.02)     # resolution up - more clusters V down = fewer clusters, ideally want # clusters to = # disease stages
         print(f"Leiden found {self.ann_obj.obs['leiden'].nunique()} clusters")
 
         # Step 2: Set root (identify cluster that Normal cells belong to)
