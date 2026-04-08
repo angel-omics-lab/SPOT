@@ -261,7 +261,8 @@ class SpatialOmicsAnalyzer:
         print('Generating box plots for significant peptides...')
 
         for peptide in self.good_peptides:
-            plt.figure()
+            fig, ax = plt.subplots(figsize=(2.5, 4))  # create axes explicitly
+            plt.rcParams['font.serif'] = ['Arial']
             plot_data = (
                 [{'Intensity': val, 'Class':'DCIS'} for val in [self.data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'DCIS' ]]
                 +
@@ -269,21 +270,29 @@ class SpatialOmicsAnalyzer:
             )
             plot_df = pd.DataFrame(plot_data)
 
-            ax = sns.boxplot(
+            sns.boxplot(
                 data=plot_df, 
                 x='Class', y='Intensity', 
                 hue='Class', 
-                palette={'DCIS':'dodgerblue', 'IBC':'orange'}
+                palette={'DCIS':'dodgerblue', 'IBC':'orange'},
+                ax=ax
+            )
+
+            sns.swarmplot(
+                data=plot_df,
+                x='Class', y='Intensity',
+                color='black',
+                ax=ax
             )
 
             ax.set_title(peptide)
             ax.set_ylabel('ln(Median Intensity)')
             ax.set_xlabel('')
             ax.legend_ = None
-            plt.tight_layout()
+            fig.tight_layout()
 
-            plt.savefig(os.path.join(os.path.dirname(self.data_path), f'results/boxplot_{peptide}.png'))
-            plt.close()
+            fig.savefig(os.path.join(os.path.dirname(self.data_path), f'results/boxplot_{peptide}.png'))
+            plt.close(fig)
 
         print('Box plots generation successful!')
         sns.reset_orig()
@@ -390,41 +399,38 @@ class SpatialOmicsAnalyzer:
         Returns
         random_forest_bar_graph (png)
         '''
-        print('Generating random forest models per peptide...')
-        oob_list = []
-        # Convert peptides to string so yticks interpreted as categorical
+        print('Running random forest classification...')
         good_peptides_str = [str(p) for p in self.good_peptides]
-        roi_stats_str = roi_stats
+        roi_stats_str = roi_stats.copy()
         roi_stats_str.columns = [str(c) for c in roi_stats_str.columns]
-        for peptide in good_peptides_str : 
-            X = roi_stats_str[[peptide]]    
-            y = roi_stats_str['class']
-            # Randomly split the dataset so 10% is reserved for model validation 
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
-            
-            forest_model = RandomForestClassifier(n_estimators=100, oob_score=True, random_state=42)
-            forest_model.fit(X_train, y_train)
-            oob_list.append(forest_model.oob_score_)
-            
-        # Plot each peptide oob on bar plot
-        print('Constructing oob bar plot...')
-        # Sort them so plot can have them listed as ascending
-        sorted_pairs = sorted(zip(oob_list, good_peptides_str), key=lambda x:x[0])
-        sorted_scores, sorted_peptides = zip(*sorted_pairs)
+
+        X = roi_stats_str[good_peptides_str]
+        y = roi_stats_str['class']
+        X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
         
-        plt.barh(sorted_peptides, sorted_scores, color='mediumorchid')
-        plt.title('Peptide discrimination score in random forest models')
-        plt.xlabel('OOB score')
-        plt.xlim(0,1)
-        plt.xticks()
-        plt.yticks(sorted_peptides)
-        plt.tight_layout()
-        plt.legend_ = None
+        print('Fitting forest model...')
+        model = RandomForestClassifier(n_estimators=1000, random_state=42)
+        model.fit(X_train, y_train)
 
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/forest_barplot.png'))
+        # Feature importance based on mean decrease in impurity 
+        importances = model.feature_importances_
+        variable_importances = pd.Series(importances, index=good_peptides_str)
+        variable_importances_sorted = variable_importances.sort_values()
+
+        print('Plotting...')
+        fig, ax = plt.subplots(figsize=(8, len(self.good_peptides) * 0.4 + 1))
+        variable_importances_sorted.plot.barh(
+            ax=ax,
+            color='mediumorchid',
+            ecolor='gray'
+        )
+
+        ax.set_title('Ranking of peptide importance in random forest classification model')
+        ax.set_xlabel('Feature importance')
+        ax.set_ylabel('Peptide m/z')
+        fig.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/barplot.png'))
         plt.close()
-        print('Bar plot generation successful.')
-
 
     def create_anndata_object(self):
         '''
@@ -487,28 +493,28 @@ class SpatialOmicsAnalyzer:
             class_colors[c] for c in self.ann_obj.obs['class'].cat.categories
         ]
 
-        # Calculate number of components to retain for PCA with Explained Variance Threshold heuristic
-        #print('Calculating optimal number of PCA components...')
+        # #Calculate number of components to retain for PCA with Explained Variance Threshold heuristic
+        # print('Calculating optimal number of PCA components...')
         # max_comps = min(self.ann_obj.n_obs, self.ann_obj.n_vars) - 1
         # sc.pp.pca(self.ann_obj, n_comps=max_comps)       # Run pca with max comps
         # cumsum = np.cumsum(self.ann_obj.uns['pca']['variance_ratio'])
         
-        # n_comps = int(np.argmax(cumsum>=0.99) + 1)      # Retain comp
+        # n_comps = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
         # print(f'Retaining {n_comps} principal components (explain >= 99% of variance)')
-        n_comps=5
+
         print('Running PCA...') 
-        sc.pp.pca(self.ann_obj, n_comps=n_comps)
+        sc.pp.pca(self.ann_obj, n_comps=5)
         
         print('Running UMAP analysis; this may take a while...')
-        sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=n_comps)
-        sc.tl.umap(self.ann_obj)
+        sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=5)
+        sc.tl.umap(self.ann_obj, min_dist=0.5, n_components=2)
         
         print('Generating PCA and UMAP figures...')
         sc.pl.pca(self.ann_obj, color='class', 
                   show=False, save='pca.png')
         print('PCA plot generated successfully.')
         sc.pl.umap(self.ann_obj, color='class', 
-                  show=False, save='umap.png')
+                  show=False, save='_dist25.png')
         print('UMAP plot generated successfully.')
 
     
@@ -565,7 +571,7 @@ class SpatialOmicsAnalyzer:
         from pyslingshot import Slingshot
         print('Running pseudotime reconstruction. This may take a while...')
         # Step 1: Clustering
-        sc.pp.neighbors(self.ann_obj, use_rep='X_umap', n_neighbors=15)     # Overwrite the neighbor graph to be based in UMAP space, making leiden clusters more coherent
+        sc.pp.neighbors(self.ann_obj, use_rep='X_umap', n_neighbors=20)     # Overwrite the neighbor graph to be based in UMAP space, making leiden clusters more coherent
         sc.tl.leiden(self.ann_obj, resolution=0.02)     # resolution up - more clusters V down = fewer clusters, ideally want # clusters to = # disease stages
         print(f"Leiden found {self.ann_obj.obs['leiden'].nunique()} clusters")
 
@@ -665,7 +671,7 @@ class SpatialOmicsAnalyzer:
             self.create_anndata_object()
             self.run_pixel_dim_reduction()
             # self.compute_mst()
-            self.run_pseudotime_slingshot()
+            # self.run_pseudotime_slingshot()
         except:
             print('Pipeline broke before finishing.')
         finally: 
