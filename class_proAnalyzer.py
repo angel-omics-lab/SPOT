@@ -400,32 +400,39 @@ class SpatialOmicsAnalyzer:
         random_forest_bar_graph (png)
         '''
         print('Running random forest classification...')
+        from sklearn.inspection import permutation_importance
+
         good_peptides_str = [str(p) for p in self.good_peptides]
         roi_stats_str = roi_stats.copy()
         roi_stats_str.columns = [str(c) for c in roi_stats_str.columns]
+        roi_stats_str = roi_stats_str[roi_stats_str['class'] != 'Normal']
 
         X = roi_stats_str[good_peptides_str]
         y = roi_stats_str['class']
-        X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
         
         print('Fitting forest model...')
-        model = RandomForestClassifier(n_estimators=1000, random_state=42)
-        model.fit(X_train, y_train)
+        model = RandomForestClassifier(n_estimators=1000, random_state=42, oob_score= True, bootstrap=True)
+        model.fit(X, y)
+        oob_error = round((1 - model.oob_score_) * 100, 2)                                          
+        print(f'OOB error rate: {oob_error}%')
 
         # Feature importance based on mean decrease in impurity 
-        importances = model.feature_importances_
-        variable_importances = pd.Series(importances, index=good_peptides_str)
-        variable_importances_sorted = variable_importances.sort_values()
+        # importances = model.feature_importances_
+        #variable_importances = pd.Series(importances, index=good_peptides_str)
+        perm_imp = permutation_importance(model, X, y, n_repeats=30, scoring='accuracy', random_state=42)
+        variable_importances = pd.Series(perm_imp.importances_mean, index=good_peptides_str).sort_values()
+
 
         print('Plotting...')
-        fig, ax = plt.subplots(figsize=(8, len(self.good_peptides) * 0.4 + 1))
-        variable_importances_sorted.plot.barh(
+        fig, ax = plt.subplots(figsize=(8, max(4, len(self.good_peptides) * 0.5 + 1)))
+        variable_importances.plot.barh(
             ax=ax,
             color='mediumorchid',
+            xerr=pd.Series(perm_imp.importances_std, index=good_peptides_str).reindex(variable_importances.index), 
             ecolor='gray'
         )
 
-        ax.set_title('Ranking of peptide importance in random forest classification model')
+        ax.set_title(f'Ranking of peptide importance in random forest classification model\n Model accuracy: {oob_error}%')
         ax.set_xlabel('Feature importance')
         ax.set_ylabel('Peptide m/z')
         fig.tight_layout()
