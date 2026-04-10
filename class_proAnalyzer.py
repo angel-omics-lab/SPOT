@@ -49,6 +49,7 @@ class SpatialOmicsAnalyzer:
         self.roi_labels = roi_labels #json.load(open('data.json', 'roi_labels'))       # Contains sheet name of each ROI and its label     
         self.good_peptides = None
         self.ann_obj = None
+        self.roi_stats = None
         try: 
             self.data = pd.read_excel(data_path, sheet_name=None)
         except FileNotFoundError as e:
@@ -110,10 +111,16 @@ class SpatialOmicsAnalyzer:
             intensities = data.iloc[:, 4:]      # Skip first 4 columns 
             print(f'Processing {region}...')
             intensities = intensities.fillna(0)        # Change all NaN values to 0 
-            zeros = (intensities==0).astype(int).sum().sum()      # Number of 0 intensities
-            total = intensities.shape[0]*data.shape[1]     # Total number of intensities
+            # zeros = (intensities==0).astype(int).sum().sum()      # Number of 0 intensities
+            # total = intensities.shape[0]*data.shape[1]     # Total number of intensities
             
-            if zeros > (0.25*total):       # Remove ROI from list if >25% of peptides are 0 
+            # if zeros > (0.25*total):       # Remove ROI from list if >25% of peptides are 0 
+            #     to_remove.append(region)
+            #     print(f'Removed {region} with {label} label from list: >25% zero intensities.')
+            # else: 
+            #     print(f'{region} accepted')
+            NA_prop = (intensities == 0).mean()
+            if (NA_prop > 0.25).mean() > 0.25:
                 to_remove.append(region)
                 print(f'Removed {region} with {label} label from list: >25% zero intensities.')
             else: 
@@ -121,7 +128,6 @@ class SpatialOmicsAnalyzer:
         for region in to_remove:
             del self.roi_labels[region] 
         print('ROI filtering complete. Filtered list: ', self.roi_labels.keys())
-        # return self.roi_labels
 
 
     
@@ -212,10 +218,10 @@ class SpatialOmicsAnalyzer:
         for region in self.roi_labels:
             data = self.data[region]
             cols = [p for p in self.good_peptides if p in data.columns]
-            data[cols] = data[cols].replace(0,np.nan)
-            data[cols] = np.log(data[cols])
-            data[cols] = data[cols].replace(np.nan, 0)
-
+            # data[cols] = data[cols].replace(0,np.nan)
+            # data[cols] = np.log(data[cols])
+            # data[cols] = data[cols].replace(np.nan, 0)
+            data[cols] = np.log1p(data[cols])
         print('Normalization complete.')
 
 
@@ -316,14 +322,13 @@ class SpatialOmicsAnalyzer:
         )
             # Groupby computes centroid AND all peptide means in one pass (vector operation)
         agg_dict = {'x': 'mean', 'y': 'mean', **{p: 'median' for p in self.good_peptides}}
-        roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
-        roi_stats['class'] = roi_stats['roi'].map(self.roi_labels)
+        self.roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
+        self.roi_stats['class'] = self.roi_stats['roi'].map(self.roi_labels)
 
         print('ROI calculations successful!')
-        return roi_stats
 
 
-    def generate_spatial_heatmap(self, roi_stats):
+    def generate_spatial_heatmap(self):
         '''
         Generates a spatial heatmap (on the original image) for each peptide based on the centroid of each ROI and mean intensity of each peptide.
 
@@ -335,8 +340,8 @@ class SpatialOmicsAnalyzer:
         # Generate heatmaps for each peptide as a scatterplot where color indicates mean intensity
         for peptide in self.good_peptides:
             heatmap = plt.figure()
-            plt.scatter(roi_stats['x'], roi_stats['y'], 
-                        c=roi_stats[peptide], cmap='jet', s=70)
+            plt.scatter(self.roi_stats['x'], self.roi_stats['y'], 
+                        c=self.roi_stats[peptide], cmap='jet', s=70)
             cb = plt.colorbar()
             plt.xlabel(None)
             plt.xticks([])
@@ -348,12 +353,11 @@ class SpatialOmicsAnalyzer:
             cb.remove()
             plt.close()
             
-        print('Spatial heatmap generation successful.')
-        return roi_stats        
+        print('Spatial heatmap generation successful.')  
 
 
 
-    def make_hierarchical_clusters(self, roi_stats):
+    def make_hierarchical_clusters(self):
         '''
         Generates a dendrogram showing hierarchical clusters based on Ward's (+ Euclidean) method. 
         i.e. ROIs with similar peptide profiles will be clustered together
@@ -363,17 +367,17 @@ class SpatialOmicsAnalyzer:
         '''
         print('Generating hierarchical clusters...')
         # Extract peptide intensities per roi 
-        feature_matrix = roi_stats[self.good_peptides].values
+        feature_matrix = self.roi_stats[self.good_peptides].values
         # Create dendrogram
         print('Constructing dendrogram for visualization...')
         linkage_data = linkage(feature_matrix, method='ward', metric='euclidean')
-        dend = dendrogram(linkage_data, labels=roi_stats['roi'].values)
+        dend = dendrogram(linkage_data, labels=self.roi_stats['roi'].values)
  
         # Formatting
         plt.rcParams['axes.prop_cycle'] = plt.cycler(color=['mediumorchid', 'lightcoral', 'lightblue'])
         color_map = {'DCIS': 'dodgerblue', 'IBC': 'orange', 'Normal': 'green'}
         leaf_order = dend['ivl']  # ROIs in dendrogram order
-        label_colors = [color_map[roi_stats.set_index('roi').loc[roi, 'class']] for roi in leaf_order]
+        label_colors = [color_map[self.roi_stats.set_index('roi').loc[roi, 'class']] for roi in leaf_order]
         ax = plt.gca()
         for tick, color in zip(ax.get_xticklabels(), label_colors):
             tick.set_color(color)
@@ -392,7 +396,7 @@ class SpatialOmicsAnalyzer:
 
 
 
-    def get_random_forest_ranking(self, roi_stats):
+    def get_random_forest_ranking(self):
         '''
         Runs a random forest classification model for all peptides then outputs a bar plot of peptides with their 'discriminating' score. 
         
@@ -403,7 +407,7 @@ class SpatialOmicsAnalyzer:
         from sklearn.inspection import permutation_importance
 
         good_peptides_str = [str(p) for p in self.good_peptides]
-        roi_stats_str = roi_stats.copy()
+        roi_stats_str = self.roi_stats.copy()
         roi_stats_str.columns = [str(c) for c in roi_stats_str.columns]
         roi_stats_str = roi_stats_str[roi_stats_str['class'] != 'Normal']
 
@@ -412,9 +416,8 @@ class SpatialOmicsAnalyzer:
         
         print('Fitting forest model...')
         model = RandomForestClassifier(n_estimators=1000, random_state=42, oob_score= True, bootstrap=True)
-        model.fit(X, y)
-        oob_error = round((1 - model.oob_score_) * 100, 2)                                          
-        print(f'OOB error rate: {oob_error}%')
+        model.fit(X, y)                                          
+        print(f'Model accuracy (OOB score): {model.oob_score_*100}%')
 
         # Feature importance based on mean decrease in impurity 
         # importances = model.feature_importances_
@@ -432,7 +435,7 @@ class SpatialOmicsAnalyzer:
             ecolor='gray'
         )
 
-        ax.set_title(f'Ranking of peptide importance in random forest classification model\n Model accuracy: {oob_error}%')
+        ax.set_title(f'Ranking of peptide importance in random forest classification model\n Model accuracy: {model.oob_score_*100}%')
         ax.set_xlabel('Feature importance')
         ax.set_ylabel('Peptide m/z')
         fig.tight_layout()
@@ -513,8 +516,8 @@ class SpatialOmicsAnalyzer:
         sc.pp.pca(self.ann_obj, n_comps=5)
         
         print('Running UMAP analysis; this may take a while...')
-        sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=5)
-        sc.tl.umap(self.ann_obj, min_dist=0.5, n_components=2)
+        sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=5, n_neighbors=15)
+        sc.tl.umap(self.ann_obj, min_dist=0.75, n_components=2)
         
         print('Generating PCA and UMAP figures...')
         sc.pl.pca(self.ann_obj, color='class', 
@@ -523,50 +526,6 @@ class SpatialOmicsAnalyzer:
         sc.pl.umap(self.ann_obj, color='class', 
                   show=False, save='_dist25.png')
         print('UMAP plot generated successfully.')
-
-    
-    def compute_mst(self):
-        '''
-        Generates a minimum spanning tree (MST) connecting ROI centroids in PCA space. 
-        It is used as the 'backbone' of TSCAN and is overlaid on the UMAP generated from it. 
-        
-        Args:
-            ann_obj (AnnData) : output of run_pixel_analysis(), is original ann_obj with added X_pca and X_umap in obs 
-        
-        Returns: 
-            ann_obj (AnnData) : updated with MST stored in ann_obj.uns['mst']
-                uns['mst']['graph'] -- networkx graph of MST
-                uns['mst']['centroids_pca'] -- df, ROI centroids in PCA space
-        '''
-        if self.ann_obj is None:
-            raise RuntimeError('ann_obj is empty. Run create_anndata_object() and run_pixel_analysis() first')
-        
-        print('Computing MST...')
-        # Compute roi centroids in pca space
-        n_comps = self.ann_obj.obsm['X_pca'].shape[1]
-        pca_df = pd.DataFrame(
-            self.ann_obj.obsm['X_pca'], 
-            index = self.ann_obj.obs_names, 
-            columns=[f'PC{i+1}' for i in range(n_comps)]
-        )
-        pca_df['sample']=self.ann_obj.obs['sample'].values
-        centroids_pca = pca_df.groupby('sample').mean()
-        
-        # Build mst on centroids
-        dist_matrix = cdist(centroids_pca.values, centroids_pca.values, metric='euclidean')     # Gets Eucl. distance between every ROI centroid pair in PCA space
-        mst_sparse = minimum_spanning_tree(dist_matrix)         # Actual MST algorithm -- finding edge subset that minimizes total distance, outputs sparse matrix identifying those edges
-        
-        graph = nx.from_scipy_sparse_array(mst_sparse)      # Converts sparse matrix into graph object 
-        roi_names = list(centroids_pca.index)
-        mst_graph = nx.relabel_nodes(graph, {i: name for i, name in enumerate(roi_names)})      # Swaps default node names for actual ROIs
-        
-        print(f'MST built with {mst_graph.number_of_nodes()} nodes and {mst_graph.number_of_edges()} edges')
-        
-        # Add MST data to ann_obj
-        self.ann_obj.uns['mst'] = {
-            'graph': mst_graph, 
-            'centroids' : centroids_pca
-        }
             
 
 
@@ -578,109 +537,73 @@ class SpatialOmicsAnalyzer:
         from pyslingshot import Slingshot
         print('Running pseudotime reconstruction. This may take a while...')
         # Step 1: Clustering
-        sc.pp.neighbors(self.ann_obj, use_rep='X_umap', n_neighbors=20)     # Overwrite the neighbor graph to be based in UMAP space, making leiden clusters more coherent
-        sc.tl.leiden(self.ann_obj, resolution=0.02)     # resolution up - more clusters V down = fewer clusters, ideally want # clusters to = # disease stages
+        print('Generating Leiden clusters...')
+
+        # sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_neighbors=20)     # Overwrite the neighbor graph to be based in PCA space, making leiden clusters more coherent
+        sc.tl.leiden(self.ann_obj, resolution=0.08)     # resolution up - more clusters V down = fewer clusters, ideally want # clusters to = # disease stages
         print(f"Leiden found {self.ann_obj.obs['leiden'].nunique()} clusters")
 
         # Step 2: Set root (identify cluster that Normal cells belong to)
+        print('Identifying root cluster...')
         normal_mask = self.ann_obj.obs['class']=='Normal'
         normal_clusters = self.ann_obj.obs.loc[normal_mask, 'leiden']
         root_cluster = int(normal_clusters.mode().iloc[0])
 
+        # Subsample 
+        max_cells = 10000
+        if self.ann_obj.n_obs > max_cells:
+            print('Subsampling...')
+            sc.pp.subsample(self.ann_obj, n_obs=max_cells, random_state=42)
+
         #Step 3: Slingshot fitting
+        print('Fitting pseudotime model...')
         slingshot = Slingshot(
             self.ann_obj, 
             celltype_key='leiden', 
             obsm_key='X_umap', 
-            start_node=root_cluster
+            start_node=root_cluster,
+            is_debugging='verbose'
         )
-        slingshot.fit()
+        slingshot.fit(num_epochs=1)
         self.ann_obj.obs['pseudotime'] = slingshot.unified_pseudotime
         print('Pseudotime fitting successful. Now proceeding to plotting...')
 
         # Step 4: Plot
-        umap_coords = self.ann_obj.obsm['X_umap']
-        self.ann_obj.obs['umap1'] = umap_coords[:,0]
-        self.ann_obj.obs['umap2'] = umap_coords[:,1]
+        fig, axes = plt.subplots(ncols=2, figsize=(12,4))
+        axes[0].set_title('Clusters')
+        axes[1].set_title('Pseudotime')
 
-        class_colors = {'Normal':'green','DCIS':'dodgerblue', 'IBC':'orange'}
-        point_colors = self.ann_obj.obs['class'].map(class_colors).values
-
-        roi_centroids = self.ann_obj.obs.groupby('sample')[['umap1', 'umap2']].mean()
-        roi_class = self.ann_obj.obs.groupby('sample')['class'].first()
-        centroid_colors = roi_class.map(class_colors).values
-
-        fig,ax = plt.subplots()
-        # Plot UMAP as scatterplot
-        scatter = ax.scatter(
-            self.ann_obj.obs['umap1'], 
-            self.ann_obj.obs['umap2'], 
-            c=point_colors, 
-            s=5
-        )
-
-        # Overlay centroids
-        ax.scatter(
-            roi_centroids['umap1'],
-            roi_centroids['umap2'],
-            c=centroid_colors,
-            s=80, 
-            edgecolors='black',
-            linewidths=0.8,
-            zorder=5
-        )
-        # Label centroids
-        for roi, row in roi_centroids.iterrows():
-            ax.annotate(
-                roi, 
-                xy=(row['umap1'], row['umap2']),
-                fontsize=7,
-                fontweight='bold',
-                ha='center',
-                va='bottom',
-                xytext=(0,5),
-                textcoords='offset points'
-            )
-        # Overlay slingshot curves
-        for curve in slingshot.curves:
-            points = curve.points
-            ax.plot(
-                points[:,0],
-                points[:,1],
-                color='black',
-                linewidth = 1.5
-            )
-        
-        ax.set_xlabel('UMAP1'),
-        ax.set_ylabel('UMAP2')
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/umap_pseudotime.png'))
-        plt.close()
-    
+        slingshot.plotter.curves(axes[0], slingshot.curves)
+        slingshot.plotter.clusters(axes[0], labels=np.arange(slingshot.num_clusters), s=6, alpha=0.5)
+        slingshot.plotter.clusters(axes[1], color_mode='pseudotime', s=6)
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/pseudotime.png'))
         
     
     
 ##### Entire pipeline ##### 
-    def allPipeline(self):
+    def allAnalysis(self):
         start = time.time()
         os.makedirs((os.path.join(os.path.dirname(self.data_path), 'results')), exist_ok=True)
         try : 
             self.check_sheet_format()
             self.filter_rois()
-            self.get_roi_map()
+            #self.get_roi_map()
             self.peptide_sparsity_filter()
             self.normalize_intensities()
             self.diff_expression_test()
-            self.generate_boxplots()
-            roi_stats = self.get_roi_stats()
-            self.generate_spatial_heatmap(roi_stats)
-            self.make_hierarchical_clusters(roi_stats)
-            self.get_random_forest_ranking(roi_stats)
+            # self.generate_boxplots()
+            self.get_roi_stats()
+            # self.generate_spatial_heatmap()
+            # self.make_hierarchical_clusters()
+            self.get_random_forest_ranking()
             self.create_anndata_object()
             self.run_pixel_dim_reduction()
             # self.compute_mst()
-            # self.run_pseudotime_slingshot()
-        except:
+            self.run_pseudotime_slingshot()
+        except Exception as e:
+            import traceback
             print('Pipeline broke before finishing.')
+            traceback.print_exc()
         finally: 
             end = time.time()
             duration = (end-start) // 60    # in minutes

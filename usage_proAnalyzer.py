@@ -39,4 +39,4 @@ roi_labels = {
 
 SPOT = SpatialOmicsAnalyzer(data_path=DATA_PATH, roi_labels=roi_labels)
 
-SPOT.allPipeline()
+SPOT.allAnalysis()
