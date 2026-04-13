@@ -114,148 +114,91 @@ good_peptides = [758.4519, 797.4264, 976.4517, 999.5946, 1060.5269,
 # print('Generating heatmaps for each peptide...')
 # # Calculate spatial centroid of each roi
 #     # Concatenate all ROI sheets, tagging each row with its ROI label
-# combined = pd.concat(
-#     [df.assign(roi=roi) for roi, df in data.items() if roi in roi_labels],
-#     ignore_index=True
-# )
+#     combined = pd.concat(
+#         [df.assign(roi=roi) for roi, df in data.items() if roi in roi_labels],
+#         ignore_index=True
+#     )
 #     # Groupby computes centroid AND all peptide means in one pass (vector operation)
-# agg_dict = {'x': 'mean', 'y': 'mean', **{p: 'mean' for p in good_peptides}}
-# roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
-# roi_stats['class'] = roi_stats['roi'].map(roi_labels)
-# print(roi_stats)
-# #print(roi_stats.dtypes())
-        
-# # Generate heatmaps for each peptide
-# for peptide in good_peptides:
-#     heatmap = plt.figure()
-#     plt.scatter(roi_stats['x'], roi_stats['y'], 
-#                 c=roi_stats[peptide], cmap='RdBu_r', s=100)
-#     plt.colorbar()
-#     plt.xticks([])
-#     plt.yticks([])
-#     plt.title(peptide, fontsize=16)
-#     plt.show()
-# print('Spatial heatmap generation successful. Saved to: ', os.path.dirname(DATA_PATH))
-# print('ROI stats:', roi_stats)
+#     agg_dict = {'x': 'mean', 'y': 'mean', **{p: 'median' for p in good_peptides}}
+#     roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
+#     roi_stats['class'] = roi_stats['roi'].map(roi_labels)
+
+#     print('ROI calculations successful!')
+#     return roi_stats
+
+# roi_stats = get_roi_stats()
 
 
-# ### Generate boxplots 
-# print('Generating box plots for significant peptides...')
-# n_peptides = len(good_peptides)
-# n_cols = 5
-# n_rows = math.ceil(n_peptides/n_cols)
 
-# fig, axs = plt.subplots(n_rows, n_cols, figsize=(n_cols*4, n_rows*4))        # Grid of box plots
-# axs = axs.flatten()     # Flatten so indexing is easier
-# # Give overall plot name, axis, legend 
-# for i, peptide in enumerate(good_peptides):
+# def generate_boxplots_new(peptide):
 #     plot_data = (
-#         [{'Intensity': val, 'Class':'DCIS'}
-#          for region in roi_labels  
-#          if roi_labels[region] == 'DCIS'
-#          for val in [data[region][peptide].mean() for region in roi_labels if roi_labels[region] == 'DCIS' ]]
+#         [{'Intensity': val, 'Class':'DCIS'} for val in [data[region][peptide].mean() for region in roi_labels if roi_labels[region] == 'DCIS' ]]
 #         +
 #         [{'Intensity': val, 'Class':'IBC'} for val in [data[region][peptide].mean() for region in roi_labels if roi_labels[region] == 'IBC' ]]
 #     )
 #     plot_df = pd.DataFrame(plot_data)
-
-#     sns.boxplot(data=plot_df, x='Class', y='Intensity', 
-#                 hue='Class', palette={'DCIS':'blue', 'IBC':'orange'},
-#                 ax=axs[i], legend=False
-#             )
-#     axs[i].set_title(peptide)
-
-# # Hide unused subplots
-# for j in range(i+1, len(axs)): axs[j].set_visible(False)
-            
-# # Shared legend
-# labels = [plt.Rectangle((0,0),1,1, color=c) for c in ['blue', 'orange']]
-# fig.legend(labels, ['DCIS', 'IBC'], loc='upper right')
-
-# # Shared title, yaxislabel
-# fig.suptitle('Differentially Expressed Peptides (DCIS v IBC)')
-# fig.supylabel('ln(Mean Intensity)')
-# fig.tight_layout()
-
-# plt.savefig(os.path.join(os.path.dirname(DATA_PATH), 'sig_peptide_boxplots.png'))
-# plt.show()
-
-# print(good_peptides)
-
-
-# #### plot spatial dot plot for region types #####
-# print('Generating spatial dot plot for regions...')
-# # Calculate spatial centroid of each roi
-#     # Concatenate all ROI sheets, tagging each row with its ROI label
-# combined = pd.concat(
-#     [df.assign(roi=roi) for roi, df in data.items() if roi in roi_labels],
-#     ignore_index=True
-# )
-#     # Groupby computes centroid (vector operation)
-# agg_dict = {'x': 'mean', 'y': 'mean'}
-# roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
-# roi_stats['class'] = roi_stats['roi'].map(roi_labels)
-# roi_stats['roi'] = roi_stats['roi'].str.removeprefix('ROI_')    # remove prefix so label can fit inside dot
-        
-#     # Generate colored scatter plot
-# sns.scatterplot(data=roi_stats, x='x', y='y', 
-#                  hue='class', palette={'DCIS':'dodgerblue', 'IBC':'orange', 'Normal':'green'},
-#                  s=250
-# )
-# for x, y, roi in zip(roi_stats['x'], roi_stats['y'], roi_stats['roi']):
-#     plt.text(x, y, str(roi),
-#              ha='center', va='center', 
-#              fontsize=8, color='black')
-# plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-# plt.tight_layout()
-# plt.xticks([])
-# plt.yticks([])
-# plt.xlabel(None)
-# plt.ylabel(None)
-# plt.title('Spatial ROI Plot')
-
-# #plt.show()
-
-# print('ROI stats:', roi_stats)
-
-
-# plt.rcParams['axes.prop_cycle'] = plt.cycler(color=['mediumorchid', 'lightcoral', 'lightblue'])
-# print('Generating hierarchical clusters...')
-# # Reorder roi_stats based on class so they can be colored properly in the dendrogram
-# roi_stats = roi_stats.sort_values('class')
-# # Extract peptide intensities per roi 
-# feature_matrix = roi_stats[good_peptides].values
-# # Create dendrogram
-# print('Constructing dendrogram for visualization...')
-# linkage_data = linkage(feature_matrix, method='ward', metric='euclidean')
-# dend = dendrogram(linkage_data, labels=roi_stats['roi'].values, leaf_rotation=90)
-
-# # Formatting
-# color_map = {'DCIS': 'dodgerblue', 'IBC': 'orange', 'Normal': 'green'}
-# label_colors = [color_map[c] for c in roi_stats.set_index('roi').loc[roi_stats['roi']]['class']]
-# leaf_order = dend['ivl']  # ROIs in dendrogram order
-# label_colors = [color_map[roi_stats.set_index('roi').loc[roi, 'class']] for roi in leaf_order]
-# ax = plt.gca()
-# for tick, color in zip(ax.get_xticklabels(), label_colors):
-#     tick.set_color(color)
-# plt.yticks([])
-# # Create legend
-# class_labels = [plt.Rectangle((0,0),1,1, color=c) for c in ['dodgerblue', 'orange', 'green']]
-# plt.legend(class_labels, ['DCIS', 'IBC', 'Normal'], bbox_to_anchor=(1.05, -0.25), loc= 'lower left')
-
-# plt.title('ROI clusters based on peptide profile similarity')
-# plt.show()
+    
+#     box = sns.catplot(
+#         data=plot_df,
+#         x='Class', y='Intensity',
+#         hue='Class', 
+#         palette={'DCIS':'dodgerblue', 'IBC':'orange'},
+#         kind='box'
+#     )
+#     sns.swarmplot(
+#         data=plot_df,
+#         x='Class', y='Intensity', 
+#         color='black'
+#     )
+#     plt.plot(figsize=(2.5,4))
+#     plt.show()
 
 
 
-#### random forest plotting 
-# param_grid = {
-#     'n_estimators':[100],
-#     'max_feature':['sqrt', 'log2', None],
-#     'max_depth':[None, 5, 10, 20], 
-#     'min_samples_split': [2,5],
-#     'min_samples_leaf': [1,2]
-# }
+# from sklearn.inspection import permutation_importance
+# def get_random_forest_ranking(roi_stats):
+#     good_peptides_str = [str(p) for p in good_peptides]
+#     roi_stats_str = roi_stats.copy()
+#     roi_stats_str.columns = [str(c) for c in roi_stats_str.columns]
+
+#     X = roi_stats_str[good_peptides_str]
+#     y = roi_stats_str['class']
+#     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
+    
+#     print('Fitting forest model...')
+#     model = RandomForestClassifier(n_estimators=1000, random_state=42)
+#     model.fit(X_train, y_train)
+
+#     # Feature importance based on mean decrease in impurity 
+#     importances = model.feature_importances_
+#     variable_importances = pd.Series(importances, index=good_peptides_str)
+
+#     # Feature importance based on feature permutation
+#     print('Calculating permutation importance per variable...')
+#     # result = permutation_importance(model, X_test, y_test, n_repeats=10, random_state=42, n_jobs=2)
+#     # variable_importances = pd.Series(result.importances_mean, index=good_peptides_str)
+#     variable_importances_sorted = variable_importances.sort_values()
+
+#     # std_sorted = pd.Series(result.importances_std, index=good_peptides_str).loc[
+#     #     variable_importances_sorted.index
+#     # ]
+
+#     print('Plotting...')
+#     fig, ax = plt.subplots(figsize=(8, len(good_peptides) * 0.4 + 1))
+#     variable_importances_sorted.plot.barh(
+#         # xerr=std_sorted,
+#         ax=ax,
+#         color='mediumorchid',
+#         ecolor='gray'
+#     )
+
+#     ax.set_title('Ranking of peptide importance in random forest classification model')
+#     ax.set_xlabel('Feature importance')
+#     ax.set_ylabel('Peptide m/z')
+#     fig.tight_layout()
+#     plt.show()
+
+
 
 # print('Generating random forest models per peptide...')
 # oob_list = []
@@ -381,67 +324,51 @@ state_colors, embedding = scimitar.plotting.plot_metastable_graph(
     edge_weights=edge_fractions
 )
 
-state_colors = ann_obj.obs['metastable_state']
-embeddings = ann_obj.obsm['X_metastable']
+import numpy as np 
+from matplotlib import pyplot as plt
+from pyslingshot import Slingshot
+from anndata import AnnData
 
-unique_states = ann_obj.obs['metastable_state'].unique()
-print('Number of states identified by metastable graph: ', len(unique_states))
+load = True
+num_cells = 1000
+num_dims_reduced = 2
+num_branches = 1
 
+K=10    # cluster labels
+filename = r'C:\Users\AngelLab\Downloads\fakedata-1branch.npy'
+start_node = 4
+
+if load:
+    data = np.load(filename, allow_pickle=True).item()
+    cluster_labels = data['cluster_labels']
+    data = data['data']
+
+#plt.scatter(data[:,0], data[:,1], c=cluster_labels)
+#plt.show()
+
+num_genes = 500
+ad = AnnData(np.zeros((num_cells, num_genes)))
+ad.obsm['X_umap'] = data
+ad.obs['celltype'] = cluster_labels
+ad
+
+fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(10,10))
+custom_xlim = (-12,12)
+custom_ylim = (-12,12)
+
+slingshot = Slingshot(ad, celltype_key='celltype', obsm_key='X_umap', start_node=start_node, is_debugging='verbose')
+slingshot.fit(num_epochs=1, debug_axes=axes)
+
+fig,axes = plt.subplots(ncols=2, figsize=(12,4))
+axes[0].set_title('Cluster')
+axes[1].set_title('Pseudotime')
+slingshot.plotter.curves(axes[0],slingshot.curves)
+slingshot.plotter.clusters(axes[0], labels=np.arange(slingshot.num_clusters), s=4, alpha=0.5)
+slingshot.plotter.clusters(axes[1], color_mode='pseudotime', s=5 )
 plt.show()
 
-# ###### MGM ######
-# # The fit_transition_model method fits a single-curve MGM to the pre-determined states
-#     # analyzed_indices: indices of states specified
-# transition_model, analyzed_indices = metastable_graph.fit_transition_model(ann_obj.X, states=['green', 'dodgerblue', 'orange'])
-
-# # Visualize the MGM 
-# scimitar.plotting.plot_transition_model(ann_obj.X,
-#     transition_model, 
-#     colors = ann_obj.obs['metastable_state'], 
-#     embedding=ann_obj.obsm['X_metastable'], 
-#     scatter_plot_args={'s':200, 'alpha':0.6}, 
-#     plot_errors=False
-# )
-
-# # Refine the MGM
-# transition_model = mm.morphing_gaussian_from_embedding(ann_obj.X, 
-#     fit_type='spline', 
-#     degree=3, 
-#     step_size=0.07, 
-#     cov_estimator = 'corpcor',      # method used to estimate covariance matrices 
-#     cov_reg=0.05       # smoothing parameter 
-# )
-
-# # Plot refined model 
-# refined_transition_model, refined_pseudotimes = transition_model.refine(ann_obj.X,
-#     max_iter=3, 
-#     step_size=0.07, 
-#     cov_estimator='corpcor', 
-#     cov_reg=0.05
-# )
-
-# unique_states = ann_obj.obs['metastable_state'].unique()
-# print(unique_states)
 
 
-# ##### Progression association analysis from MGM (optional) #####
-#     # Get array of means and covariances
-# timepoints = np.arange(0, 1., 0.01)
-# means = refined_transition_model.mean(timepoints)
-# covariances = refined_transition_model.covariance(timepoints)
-
-#     # Peform tests for progression association
-# n_genes = ann_obj.X.shape[1]
-# variances = np.array([covariances[:, i, i] for i in range (n_genes)]).T 
-# pvals = scimitar.differential_analysis.progression_associated_lr_test(ann_obj.X, means, covariances)
-# qvals, sig_peps = scimitar.differential_analysis.p_adjsut(pvals, correction_method='BH', threshold=0.05)
-
-#     # Plot identified progression-associated genes over pseudotime 
-# pep_names = ann_obj.var.index
-# cluster_members = scimitar.plotting.plot_transition_clustermap(means, pep_names, timepoints, n_clusters=5)
-
-
-# ##### Get co-regulatory states (optional) #####
 
     
 # Do actual plotting
