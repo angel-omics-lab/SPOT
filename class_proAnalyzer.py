@@ -564,19 +564,13 @@ class SpatialOmicsAnalyzer:
             start_node=root_cluster,
             is_debugging='verbose'
         )
-        slingshot.fit(num_epochs=1)
-        self.ann_obj.obs['pseudotime'] = slingshot.unified_pseudotime
-        print('Pseudotime fitting successful. Now proceeding to plotting...')
-
-        # Step 4: Plot
-        fig, axes = plt.subplots(ncols=2, figsize=(12,4))
-        axes[0].set_title('Clusters')
-        axes[1].set_title('Pseudotime')
-
-        slingshot.plotter.curves(axes[0], slingshot.curves)
-        slingshot.plotter.clusters(axes[0], labels=np.arange(slingshot.num_clusters), s=6, alpha=0.5)
-        slingshot.plotter.clusters(axes[1], color_mode='pseudotime', s=6)
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/pseudotime.png'))
+        
+        # Skipping progression association and coregulatory state identifications
+        
+'''
+    
+    
+    
         
     
     
