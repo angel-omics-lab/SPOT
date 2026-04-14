@@ -20,21 +20,30 @@ from scipy.spatial.distance import cdist
 from scipy.sparse.csgraph import minimum_spanning_tree
 import networkx as nx 
 import time 
+import json
 
 
 class SpatialOmicsAnalyzer:
-    def __init__(self, data_path, roi_labels):
-        self.data_path = data_path
-
-        self.roi_labels = roi_labels #json.load(open('data.json', 'roi_labels'))       # Contains sheet name of each ROI and its label     
+    def __init__(self, data_path, json_path):
+        self.data_path = data_path 
         self.good_peptides = None
         self.ann_obj = None
         self.roi_stats = None
         try: 
             self.data = pd.read_excel(data_path, sheet_name=None)
         except FileNotFoundError as e:
-            print('Issue loading spreadsheet, check file path')
+            print('Issue loading spreadsheet, check file path.')
             print(e)
+
+        try: 
+            file = json.load(open(json_path))
+            self.roi_labels = {}
+            for entry in file['roi_labels']:
+                self.roi_labels.update(entry)
+        except Exception as e:
+            print('Issue loading and/or reading json file, check file path.')
+            print(e)
+        
         # Univeral plot formatting
         plt.rcParams.update({
             'font.family': 'Arial',

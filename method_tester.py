@@ -167,49 +167,64 @@
 
 
 
-import numpy as np 
-from matplotlib import pyplot as plt
-from pyslingshot import Slingshot
-from anndata import AnnData
+# import numpy as np 
+# from matplotlib import pyplot as plt
+# from pyslingshot import Slingshot
+# from anndata import AnnData
 
-load = True
-num_cells = 1000
-num_dims_reduced = 2
-num_branches = 1
+# load = True
+# num_cells = 1000
+# num_dims_reduced = 2
+# num_branches = 1
 
-K=10    # cluster labels
-filename = r'C:\Users\AngelLab\Downloads\fakedata-1branch.npy'
-start_node = 4
+# K=10    # cluster labels
+# filename = r'C:\Users\AngelLab\Downloads\fakedata-1branch.npy'
+# start_node = 4
 
-if load:
-    data = np.load(filename, allow_pickle=True).item()
-    cluster_labels = data['cluster_labels']
-    data = data['data']
+# if load:
+#     data = np.load(filename, allow_pickle=True).item()
+#     cluster_labels = data['cluster_labels']
+#     data = data['data']
 
-#plt.scatter(data[:,0], data[:,1], c=cluster_labels)
-#plt.show()
+# #plt.scatter(data[:,0], data[:,1], c=cluster_labels)
+# #plt.show()
 
-num_genes = 500
-ad = AnnData(np.zeros((num_cells, num_genes)))
-ad.obsm['X_umap'] = data
-ad.obs['celltype'] = cluster_labels
-ad
+# num_genes = 500
+# ad = AnnData(np.zeros((num_cells, num_genes)))
+# ad.obsm['X_umap'] = data
+# ad.obs['celltype'] = cluster_labels
+# ad
 
-fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(10,10))
-custom_xlim = (-12,12)
-custom_ylim = (-12,12)
+# fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(10,10))
+# custom_xlim = (-12,12)
+# custom_ylim = (-12,12)
 
-slingshot = Slingshot(ad, celltype_key='celltype', obsm_key='X_umap', start_node=start_node, is_debugging='verbose')
-slingshot.fit(num_epochs=1, debug_axes=axes)
+# slingshot = Slingshot(ad, celltype_key='celltype', obsm_key='X_umap', start_node=start_node, is_debugging='verbose')
+# slingshot.fit(num_epochs=1, debug_axes=axes)
 
-fig,axes = plt.subplots(ncols=2, figsize=(12,4))
-axes[0].set_title('Cluster')
-axes[1].set_title('Pseudotime')
-slingshot.plotter.curves(axes[0],slingshot.curves)
-slingshot.plotter.clusters(axes[0], labels=np.arange(slingshot.num_clusters), s=4, alpha=0.5)
-slingshot.plotter.clusters(axes[1], color_mode='pseudotime', s=5 )
-plt.show()
+# fig,axes = plt.subplots(ncols=2, figsize=(12,4))
+# axes[0].set_title('Cluster')
+# axes[1].set_title('Pseudotime')
+# slingshot.plotter.curves(axes[0],slingshot.curves)
+# slingshot.plotter.clusters(axes[0], labels=np.arange(slingshot.num_clusters), s=4, alpha=0.5)
+# slingshot.plotter.clusters(axes[1], color_mode='pseudotime', s=5 )
+# plt.show()
 
+
+
+import json
+
+def get_roi_labels_from_json(path):
+    file = json.load(open(path))
+    
+    roi_labels = {}
+    for entry in file['roi_labels']:
+        roi_labels.update(entry)
+
+    return roi_labels
+
+PATH = r'C:\Users\AngelLab\Documents\GitHub\spatial-proteomics-analyzer\examples\example_roi_labels.json'
+get_roi_labels_from_json(PATH)
 
 
 
