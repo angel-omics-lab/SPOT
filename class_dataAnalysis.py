@@ -21,26 +21,6 @@ from scipy.sparse.csgraph import minimum_spanning_tree
 import networkx as nx 
 import time 
 
-'''
-TODO
--update roi_labels to be read from a json file at data_path rather than a passed argument 
--optional: have spatial roi map be overlayed the H&E picture, this would require (or make this conditional on its existence) user to have a .png or .jpeg in data folder
--have user pass classes (or just read unique classes from roi_labels.json)--would need to update a couple functions where 'DCIS'/'IBC' are hardcoded (get_roi_map and diff_expression_test notably)
--update plot formatting so all peptides are rounded to 3 decimals
--maybe: change get_random_forest_model_ranking to train random forest model on all peptides then rank them by their feature importance rather than one at a time (could also do both?)
--tag results folder name with date and time so it's unique? 
--add try except in allPipeline for non-critical/independent methods (ex. generate_boxplots)
--axes of dendrogram/fores barplot/heatmaps labeled False, should just be blank
--Dr. Angel feedback: add numbers to boxplots 
--edge case to fix: if all peptides are filtered out, then we get an error in generate boxplots, need to put an escape if all peptides are removed/nonsignificant
--separate box plots so they are saved individually rather than in array 
--forest barplot not in Arial for some reason
--change roi map so labels are larger and outside of dots
--remove legend from forest barplot 
--figure out why UMAP is taking so long
--remove 'class' title from pca/umap plots
--add points into box plots so can visualize potential clusters
-'''
 
 class SpatialOmicsAnalyzer:
     def __init__(self, data_path, roi_labels):
@@ -416,8 +396,9 @@ class SpatialOmicsAnalyzer:
         
         print('Fitting forest model...')
         model = RandomForestClassifier(n_estimators=1000, random_state=42, oob_score= True, bootstrap=True)
-        model.fit(X, y)                                          
-        print(f'Model accuracy (OOB score): {model.oob_score_*100}%')
+        model.fit(X, y)
+        oob_score_pct = (model.oob_score_*100).round(2)                                          
+        print(f'Model accuracy (OOB score): {oob_score_pct}%')
 
         # Feature importance based on mean decrease in impurity 
         # importances = model.feature_importances_
@@ -435,7 +416,7 @@ class SpatialOmicsAnalyzer:
             ecolor='gray'
         )
 
-        ax.set_title(f'Ranking of peptide importance in random forest classification model\n Model accuracy: {model.oob_score_*100}%')
+        ax.set_title(f'Ranking of peptide importance in random forest classification model\n Model accuracy: {oob_score_pct}%')
         ax.set_xlabel('Feature importance')
         ax.set_ylabel('Peptide m/z')
         fig.tight_layout()
@@ -516,7 +497,7 @@ class SpatialOmicsAnalyzer:
         sc.pp.pca(self.ann_obj, n_comps=5)
         
         print('Running UMAP analysis; this may take a while...')
-        sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=5, n_neighbors=15)
+        sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=5, n_neighbors=25)
         sc.tl.umap(self.ann_obj, min_dist=0.75, n_components=2)
         
         print('Generating PCA and UMAP figures...')

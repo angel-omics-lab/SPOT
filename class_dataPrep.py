@@ -47,6 +47,43 @@ class ImzmlConverter:
         print('Successfully saved imzMLs to excel sheet.')
     
 
+
+    def aggregate_columns(path):
+        print('Filtering spreadsheet to aggregate duplicate columns...')
+        spreadsheet = pd.read_excel(path, sheet_name=None)
+
+        # Iteratively go through each sheet in spreadsheet
+        for sheet_name, df  in spreadsheet.items():
+            print(f'Processing sheet: {sheet_name}')
+            output_cols = []
+
+            # Convert peak col names to float, then create groups of peaks based on their rounded (1) values
+            mz_cols = df.columns[2:]
+            mz_groups = df[mz_cols].columns.groupby(pd.Series(mz_cols, dtype=float).round(1))
+                
+            # Iteratively go through each group and decide which ones to combine
+            for peak, col_names in mz_groups.items():
+                # Check for nonzeros in each row
+                group = df[col_names]
+                row_nonzero_count = (group != 0).sum(axis=1)    # Series w a nonzero count per row 
+                # Aggregate columns if there is less than 10% overlap 
+                conflict_rate = (row_nonzero_count > 1).mean()
+                if conflict_rate < 0.10:
+                    combined = group.max(axis=1)
+                    combined_name = np.median(col_names.astype(float))
+                    output_cols.append(combined)
+                else:
+                    output_cols.append(group)
+
+            df2 = pd.concat(output_cols, axis=1)
+            df = df2
+            print(f'Column aggregation for {sheet_name} complete. Combined {len(mz_cols)} peaks into {df2.shape[1]} peaks')
+            
+
+        print('Worksheet filtering complete. Data is ready to to passed to SPOT analysis.')
+
+
     def generateWorksheet(self):
         self.check_existance()
         self.combine_dfs_to_excel()
+        self.aggregate_columns()
