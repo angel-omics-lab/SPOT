@@ -330,7 +330,7 @@ class SpatialOmicsToolkit:
         for peptide in self.good_peptides:
             heatmap = plt.figure()
             plt.scatter(self.roi_stats['x'], self.roi_stats['y'], 
-                        c=scale(self.roi_stats[peptide]), cmap='jet', s=100)
+                        c=scale(self.roi_stats[peptide]), cmap='jet', s=200)
             cb = plt.colorbar()
             plt.xlabel(None)
             plt.xticks([])
@@ -389,8 +389,7 @@ class SpatialOmicsToolkit:
         '''
         Runs a random forest classification model for all peptides then outputs a bar plot of peptides with their 'discriminating' score. 
         
-        Returns
-        random_forest_bar_graph (png)
+        No returns, but generates a bar plot with every significant peptide and its feature importance (bar plot). Saved as a png
         '''
         print('Running random forest classification...')
         from sklearn.inspection import permutation_importance
@@ -409,11 +408,11 @@ class SpatialOmicsToolkit:
         oob_score_pct = round(model.oob_score_*100 , 2)                                        
         print(f'Model accuracy (OOB score): {oob_score_pct}%')
 
-        # Feature importance based on mean decrease in impurity 
-        # importances = model.feature_importances_
-        #variable_importances = pd.Series(importances, index=good_peptides_str)
-        perm_imp = permutation_importance(model, X, y, n_repeats=30, scoring='accuracy', random_state=42)
-        variable_importances = pd.Series(perm_imp.importances_mean, index=good_peptides_str).sort_values()
+        # Feature importance based on mean decrease in impurity (MDI)
+        importances = model.feature_importances_
+        variable_importances = pd.Series(importances, index=good_peptides_str).sort_values()
+        # perm_imp = permutation_importance(model, X, y, n_repeats=30, scoring='accuracy', random_state=42)
+        # variable_importances = pd.Series(perm_imp.importances_mean, index=good_peptides_str).sort_values()
 
 
         print('Plotting...')
@@ -421,8 +420,8 @@ class SpatialOmicsToolkit:
         variable_importances.plot.barh(
             ax=ax,
             color='mediumorchid',
-            xerr=pd.Series(perm_imp.importances_std, index=good_peptides_str).reindex(variable_importances.index), 
-            ecolor='gray'
+            #xerr=pd.Series(perm_imp.importances_std, index=good_peptides_str).reindex(variable_importances.index), 
+            #ecolor='gray'
         )
 
         ax.set_title(f'Ranking of peptide importance in random forest classification model\n Model accuracy: {oob_score_pct}%')
@@ -506,7 +505,7 @@ class SpatialOmicsToolkit:
         sc.pp.pca(self.ann_obj, n_comps=3)
         
         print('Running UMAP analysis; this may take a while...')
-        sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=3, n_neighbors=25)
+        sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=3, n_neighbors=50)
         sc.tl.umap(self.ann_obj, min_dist=0.75, n_components=2)
         
         print('Generating PCA and UMAP figures...')
@@ -615,11 +614,11 @@ class SpatialOmicsToolkit:
             self.peptide_sparsity_filter()
             self.normalize_intensities()
             self.diff_expression_test()
-            # self.generate_boxplots()
+            self.generate_boxplots()
             self.get_roi_stats()
-            # self.generate_spatial_heatmap()
-            # self.make_hierarchical_clusters()
-            # self.get_random_forest_ranking()
+            self.generate_spatial_heatmap()
+            self.make_hierarchical_clusters()
+            self.get_random_forest_ranking()
             self.create_anndata_object()
             self.run_pixel_dim_reduction()
             # self.compute_mst()

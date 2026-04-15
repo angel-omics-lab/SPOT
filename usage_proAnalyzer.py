@@ -1,5 +1,4 @@
 
-import json
 from class_dataAnalysis import SpatialOmicsToolkit
 
 DATA_PATH = r'F:\Bryn\DCIS_Souvik\dcis_data_full.xlsx'
