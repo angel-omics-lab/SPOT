@@ -1,4 +1,4 @@
-<img width="701.33" height="222" alt="Image" src="https://github.com/user-attachments/assets/17dda829-be70-47cc-b130-a4e19a7c7ff9" />
+<img width="1052" height="333" alt="Image" src="https://github.com/user-attachments/assets/0c105274-b155-44af-934f-71df72cf7b29" />
 
 SPOT (Spatial Omics Toolkit) is an end-to-end spatial omics pipeline. open-sourced, pre-existing statistical methods, like random forest models and principal component analysis (PCA), to provide researchers with a straightforward and comprehensive pipeline for both class based and spatial omics analysis.
 
