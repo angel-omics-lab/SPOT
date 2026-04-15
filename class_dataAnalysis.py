@@ -23,7 +23,7 @@ import time
 import json
 
 
-class SpatialOmicsAnalyzer:
+class SpatialOmicsToolkit:
     def __init__(self, data_path, json_path):
         self.data_path = data_path 
         self.good_peptides = None
@@ -330,7 +330,7 @@ class SpatialOmicsAnalyzer:
         for peptide in self.good_peptides:
             heatmap = plt.figure()
             plt.scatter(self.roi_stats['x'], self.roi_stats['y'], 
-                        c=self.roi_stats[peptide], cmap='jet', s=70)
+                        c=scale(self.roi_stats[peptide]), cmap='jet', s=100)
             cb = plt.colorbar()
             plt.xlabel(None)
             plt.xticks([])
@@ -503,17 +503,17 @@ class SpatialOmicsAnalyzer:
         # print(f'Retaining {n_comps} principal components (explain >= 99% of variance)')
 
         print('Running PCA...') 
-        sc.pp.pca(self.ann_obj, n_comps=5)
+        sc.pp.pca(self.ann_obj, n_comps=3)
         
         print('Running UMAP analysis; this may take a while...')
-        sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=5, n_neighbors=25)
+        sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=3, n_neighbors=25)
         sc.tl.umap(self.ann_obj, min_dist=0.75, n_components=2)
         
         print('Generating PCA and UMAP figures...')
         sc.pl.pca(self.ann_obj, color='class', 
                   show=False, save='.png')
         print('PCA plot generated successfully.')
-        sc.pl.umap(self.ann_obj, color='class', 
+        sc.pl.umap(self.ann_obj, color='class',
                   show=False, save='.png')
         print('UMAP plot generated successfully.')
             
@@ -584,9 +584,9 @@ class SpatialOmicsAnalyzer:
 
         # Plot
         X = self.ann_obj.obsm['X_umap']
-        pseudotime = self.ann_obj.obs['dpt_pseudotime'].values
+        pseudotime = 1- (self.ann_obj.obs['dpt_pseudotime'].values)
         
-        fig, ax = plt.subplots(figsize=(6,5))
+        fig, ax = plt.subplots(figsize=(8,5))
         plot = plt.scatter(X[:,0], X[:,1], 
                          c=pseudotime, cmap='magma', s=4, alpha=0.4, rasterized=True
                          )
@@ -600,6 +600,7 @@ class SpatialOmicsAnalyzer:
         plt.tight_layout()
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/dpt_pseudotime.png'))
         plt.close()
+        print('Diffusion pseudotime reconstruction successful!')
 
 
     
@@ -614,16 +615,16 @@ class SpatialOmicsAnalyzer:
             self.peptide_sparsity_filter()
             self.normalize_intensities()
             self.diff_expression_test()
-            self.generate_boxplots()
+            # self.generate_boxplots()
             self.get_roi_stats()
-            self.generate_spatial_heatmap()
-            self.make_hierarchical_clusters()
-            self.get_random_forest_ranking()
+            # self.generate_spatial_heatmap()
+            # self.make_hierarchical_clusters()
+            # self.get_random_forest_ranking()
             self.create_anndata_object()
             self.run_pixel_dim_reduction()
             # self.compute_mst()
             #self.run_pseudotime_slingshot()
-            #self.run_diffusion_pseudotime()
+            self.run_diffusion_pseudotime()
         except Exception as e:
             import traceback
             print('Pipeline broke before finishing.')
