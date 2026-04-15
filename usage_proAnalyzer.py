@@ -1,10 +1,9 @@
 
 import json
-from class_proAnalyzer import SpatialOmicsAnalyzer
+from class_dataAnalysis import SpatialOmicsAnalyzer
 
 DATA_PATH = r'F:\Bryn\DCIS_Souvik\dcis_data_full.xlsx'
-#DATA_PATH = r'C:\Users\AngelLab\Desktop\pipeline-data_PMA\DCIS065_A5_HE_total_modified.xlsx'
-#JSON_PATH = r'C:\Users\AngelLab\Documents\GitHub\spatial-proteomics-analyzer\roi_labels.xlsx'
+JSON_PATH = r'C:\Users\AngelLab\Documents\GitHub\spatial-proteomics-analyzer\examples\example_roi_labels.json'
 
 roi_labels = {
     'ROI_101':'DCIS', 
@@ -37,6 +36,6 @@ roi_labels = {
     'ROI_128':'Normal'  
 }
 
-SPOT = SpatialOmicsAnalyzer(data_path=DATA_PATH, roi_labels=roi_labels)
+SPOT = SpatialOmicsAnalyzer(data_path=DATA_PATH, json_path=JSON_PATH)
 
 SPOT.allAnalysis()

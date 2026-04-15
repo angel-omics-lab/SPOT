@@ -226,8 +226,8 @@ class SpatialOmicsAnalyzer:
         # Identify significant peptide 
         print('Identifying differentially expressed peptides...')
         for peptide in self.good_peptides:
-            group1 = [self.data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']     # Mean intensities of peptide in DCIS (class 1) rois        
-            group2 = [self.data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'IBC']      # Mean Intensities of peptide in IBC (class 2) rois
+            group1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']     # Mean intensities of peptide in DCIS (class 1) rois        
+            group2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'IBC']      # Mean Intensities of peptide in IBC (class 2) rois
             # Run KW
             H_statistic, p_value = stats.kruskal(group1, group2)
             # Add to data frame 
@@ -406,7 +406,7 @@ class SpatialOmicsAnalyzer:
         print('Fitting forest model...')
         model = RandomForestClassifier(n_estimators=1000, random_state=42, oob_score= True, bootstrap=True)
         model.fit(X, y)
-        oob_score_pct = (model.oob_score_*100).round(2)                                          
+        oob_score_pct = round(model.oob_score_*100 , 2)                                        
         print(f'Model accuracy (OOB score): {oob_score_pct}%')
 
         # Feature importance based on mean decrease in impurity 
@@ -511,10 +511,10 @@ class SpatialOmicsAnalyzer:
         
         print('Generating PCA and UMAP figures...')
         sc.pl.pca(self.ann_obj, color='class', 
-                  show=False, save='pca.png')
+                  show=False, save='.png')
         print('PCA plot generated successfully.')
         sc.pl.umap(self.ann_obj, color='class', 
-                  show=False, save='_dist25.png')
+                  show=False, save='.png')
         print('UMAP plot generated successfully.')
             
 
@@ -527,17 +527,20 @@ class SpatialOmicsAnalyzer:
         from pyslingshot import Slingshot
         print('Running pseudotime reconstruction. This may take a while...')
         # Step 1: Clustering
-        print('Generating Leiden clusters...')
+        # print('Generating Leiden clusters...')
 
-        # sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_neighbors=20)     # Overwrite the neighbor graph to be based in PCA space, making leiden clusters more coherent
-        sc.tl.leiden(self.ann_obj, resolution=0.08)     # resolution up - more clusters V down = fewer clusters, ideally want # clusters to = # disease stages
-        print(f"Leiden found {self.ann_obj.obs['leiden'].nunique()} clusters")
+        # # sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_neighbors=20)     # Overwrite the neighbor graph to be based in PCA space, making leiden clusters more coherent
+        # sc.tl.leiden(self.ann_obj, resolution=0.08)     # resolution up - more clusters V down = fewer clusters, ideally want # clusters to = # disease stages
+        # print(f"Leiden found {self.ann_obj.obs['leiden'].nunique()} clusters")
 
-        # Step 2: Set root (identify cluster that Normal cells belong to)
-        print('Identifying root cluster...')
-        normal_mask = self.ann_obj.obs['class']=='Normal'
-        normal_clusters = self.ann_obj.obs.loc[normal_mask, 'leiden']
-        root_cluster = int(normal_clusters.mode().iloc[0])
+        # # Step 2: Set root (identify cluster that Normal cells belong to)
+        # print('Identifying root cluster...')
+        # normal_mask = self.ann_obj.obs['class']=='Normal'
+        # normal_clusters = self.ann_obj.obs.loc[normal_mask, 'leiden']
+        # root_cluster = int(normal_clusters.mode().iloc[0])
+
+        self.ann_obj.obs['leiden'] = '0'
+        root_cluster = 0
 
         # Subsample 
         max_cells = 10000
@@ -569,6 +572,36 @@ class SpatialOmicsAnalyzer:
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/pseudotime.png'))
         
     
+    def run_diffusion_pseudotime(self):
+        print('Running diffusion pseudotime...')
+        # Identify Normal root
+        normal_idx = self.ann_obj.obs[self.ann_obj.obs['class']=='Normal'].index[0]
+        self.ann_obj.uns['iroot'] = self.ann_obj.obs_names.get_loc(normal_idx)
+
+        # Calculate then store diffusion pseudotime 
+        sc.tl.diffmap(self.ann_obj)
+        sc.tl.dpt(self.ann_obj)
+
+        # Plot
+        X = self.ann_obj.obsm['X_umap']
+        pseudotime = self.ann_obj.obs['dpt_pseudotime'].values
+        
+        fig, ax = plt.subplots(figsize=(6,5))
+        plot = plt.scatter(X[:,0], X[:,1], 
+                         c=pseudotime, cmap='magma', s=4, alpha=0.4, rasterized=True
+                         )
+        plt.colorbar(plot, ax=ax, shrink=0.8)
+        ax.set_title('Diffusion Pseudotime')
+        ax.set_xlabel('UMAP 1')
+        ax.set_ylabel('UMAP 2')
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/dpt_pseudotime.png'))
+        plt.close()
+
+
     
 ##### Entire pipeline ##### 
     def allAnalysis(self):
@@ -577,19 +610,20 @@ class SpatialOmicsAnalyzer:
         try : 
             self.check_sheet_format()
             self.filter_rois()
-            #self.get_roi_map()
+            self.get_roi_map()
             self.peptide_sparsity_filter()
             self.normalize_intensities()
             self.diff_expression_test()
-            # self.generate_boxplots()
+            self.generate_boxplots()
             self.get_roi_stats()
-            # self.generate_spatial_heatmap()
-            # self.make_hierarchical_clusters()
+            self.generate_spatial_heatmap()
+            self.make_hierarchical_clusters()
             self.get_random_forest_ranking()
             self.create_anndata_object()
             self.run_pixel_dim_reduction()
             # self.compute_mst()
-            self.run_pseudotime_slingshot()
+            #self.run_pseudotime_slingshot()
+            #self.run_diffusion_pseudotime()
         except Exception as e:
             import traceback
             print('Pipeline broke before finishing.')
