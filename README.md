@@ -3,11 +3,14 @@
 SPOT (Spatial Omics Toolkit) is an end-to-end spatial omics pipeline. open-sourced, pre-existing statistical methods, like random forest models and principal component analysis (PCA), to provide researchers with a straightforward and comprehensive pipeline for both class based and spatial omics analysis.
 
 ## Configuring
+To run SPOT, Python needs to be installed. 
 To make sure all the necessary packages are installed without conflict, it is advised to run SPOT in a virtual environment.
 This means that every time you want to run SPOT, it needs to be done with the virtual environment activated. 
 ```python
 # Create and activate a virtual environment
-python -m venv venv_spot
+python -m venv venv_spot        
+   # NOTE: w Windows OS, you may need to have py as the prefix instead
+   # OR python3 on a Mac
 source venv_spot/bin/activate   # for Mac/Linux
 venv_spot\Scripts\activate      # for Windows
 
