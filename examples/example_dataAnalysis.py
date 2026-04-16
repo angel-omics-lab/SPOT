@@ -1,7 +1,7 @@
 '''
 This script is an example of how to use the data analysis component of SPOT starting from a worksheet and JSON file of ROIs.
 '''
-from class_dataAnalysis import SpatialOmicsToolkit          # later: from class_dataAnalysis import SpatialOmicsToolkit
+from SPOT.class_dataAnalysis import SpatialOmicsToolkit          # later: from class_dataAnalysis import SpatialOmicsToolkit
 
 
 WORKSHEET_PATH = r''      # Paste the path to the worksheet
