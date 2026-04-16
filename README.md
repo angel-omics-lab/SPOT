@@ -20,7 +20,7 @@ pip install git+https://github.com/angel-omics-lab/SPOT.git
 ## Usage
 1. Prepare the input data. If you already have an excel file with ROIs separated into unique sheets within the file, you can skip this step and proceed to Step 2. 
     * a. Given imzML files for each region of interest, they can be converted to a pipeline-specific worksheet with the methods in class_dataPrep. You can see an example script using these methods in example_dataPrep. You can directly download a copy of the file and change the path variables or incorporate it a script of your own.
-    * b. Once your worksheet has been created, create a JSON file that lists the ROIs and their disease classification. The ROI name in the JSON file and the individual sheet names contain ROI-specific data need to be identical. You can see examples of both a properly formatted JSON file and worksheet in the example folder. 
+    * b. Once your worksheet has been created, create a [JSON](https://www.w3schools.com/Js/js_json.asp) file that lists the ROIs and their disease classification. The ROI name in the JSON file and the individual sheet names contain ROI-specific data need to be identical. You can see examples of both a properly formatted JSON file and worksheet in the example folder. 
 2. Create a script to run the pipeline. You can see an example script that runs the pipeline in example_dataAnalysis. You can directly download a copy of the file and change the path variables or incorporate it a script of your own.
 3. Run SPOT analysis. Make sure to run the script while in the virtual environment you created earlier. 
 ```python

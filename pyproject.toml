@@ -21,3 +21,6 @@ dependencies = [
     "scanpy",
     "networkx"
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["spot"]
