@@ -23,12 +23,3 @@ dependencies = [
     "time",
     "json"
 ]
-
-[project.scripts]
-main = "wawd.main:main"
-
-[tool.hatch.build.targets.wheel]
-packages = ["wawd"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"wawd/wawdwgo.mp4" = "wawd/wawdwgo.mp4"
