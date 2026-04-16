@@ -13,23 +13,6 @@
         {"ROI_108":"IBC"}, 
         {"ROI_109":"IBC"}, 
         {"ROI_110":"IBC"},
-        {"ROI_111":"IBC"}, 
-        {"ROI_112":"IBC"}, 
-        {"ROI_113":"IBC"}, 
-        {"ROI_114":"IBC"}, 
-        {"ROI_115":"IBC"}, 
-        {"ROI_116":"IBC"}, 
-        {"ROI_117":"IBC"}, 
-        {"ROI_118":"IBC"}, 
-        {"ROI_119":"IBC"}, 
-        {"ROI_120":"IBC"},
-        {"ROI_121":"DCIS"},
-        {"ROI_122":"DCIS"},
-        {"ROI_123":"DCIS"},
-        {"ROI_124":"DCIS"},
-        {"ROI_125":"IBC"},
-        {"ROI_126":"DCIS"},
-        {"ROI_127":"DCIS"},
         {"ROI_128":"Normal"}
     ]
 
