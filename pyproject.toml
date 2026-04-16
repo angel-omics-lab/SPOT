@@ -16,7 +16,7 @@ dependencies = [
     "statsmodels",
     "matplotlib",
     "seaborn",
-    "sklearn",
+    "scikit-learn",
     "anndata",
     "scanpy",
     "networkx"
