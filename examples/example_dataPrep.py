@@ -2,7 +2,7 @@
 This script is an example of how to use the data preparation component of SPOT to convert a set of imzML files into a singular worksheet.
 '''
 
-from class_dataPrep import ImzmlConverter
+from SPOT.class_dataPrep import ImzmlConverter
 
 FOLDER_PATH = r'F:\Bryn\imzML_extraction\heavy dcis\region_imzmls'       # Paste the path to the folder containing all relevant imzML files
 OUTPUT_PATH = r'F:\Bryn\imzML_extraction\heavy dcis'       # Paste the path to the folder you want the spreadsheet to be saved to
