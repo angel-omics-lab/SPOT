@@ -27,7 +27,7 @@ class SpatialOmicsToolkit:
     def __init__(self, data_path, json_path):
         self.data_path = data_path 
         self.good_peptides = None
-        self.ann_obj = None
+        self.adata = None
         self.roi_stats = None
         try: 
             self.data = pd.read_excel(data_path, sheet_name=None)
@@ -437,7 +437,7 @@ class SpatialOmicsToolkit:
         and attached per-pixel metadata (ROI, class, x-coord, y-coord). This object is used as the input for PCA and UMAP analysis. 
         
         Returns: 
-            ann_obj (AnnData): X (n_pixels, n_peptides), obs metadata, and var peptide index.
+            adata (AnnData): X (n_pixels, n_peptides), obs metadata, and var peptide index.
         
         '''
         print('Constructing AnnData object...')
@@ -463,13 +463,13 @@ class SpatialOmicsToolkit:
             index=[str(p) for p in self.good_peptides]
         )
         
-        self.ann_obj = ad.AnnData(
+        self.adata = ad.AnnData(
             X = combined_intensities,   # (n_pixels, n_peptides)
             obs = pixel_metadata,       # one row per pixel
             var = peptide_metadata      # one row per peptide
         )
         
-        print('AnnData object created successfully. Shape:', self.ann_obj.shape)
+        print('AnnData object created successfully. Shape:', self.adata.shape)
     
     
     def run_pixel_dim_reduction(self):
@@ -478,46 +478,85 @@ class SpatialOmicsToolkit:
         We use scanpy rather than sklearn because it saves computational time when identifying num of PCs to retain. 
         
         Args:
-            ann_obj (AnnData): output of create_anndata_object()
+            adata (AnnData): output of create_anndata_object()
         
         Returns:
-            ann_obj (AnnData): updated with PCA and UMAP embeddings
+            adata (AnnData): updated with PCA and UMAP embeddings
             Not returned, but saves both pca and umap plots
         '''
         sc.settings.figdir = os.path.join(os.path.dirname(self.data_path), "results")
         # Register class colors so scanpy can use them directly 
         class_colors = {'Normal':'green', 'DCIS': 'dodgerblue', 'IBC': 'orange'}
-        self.ann_obj.obs['class'] = pd.Categorical(self.ann_obj.obs['class'])
-        self.ann_obj.uns['class_colors'] = [
-            class_colors[c] for c in self.ann_obj.obs['class'].cat.categories
+        self.adata.obs['class'] = pd.Categorical(self.adata.obs['class'])
+        self.adata.uns['class_colors'] = [
+            class_colors[c] for c in self.adata.obs['class'].cat.categories
         ]
 
         # #Calculate number of components to retain for PCA with Explained Variance Threshold heuristic
         # print('Calculating optimal number of PCA components...')
-        # max_comps = min(self.ann_obj.n_obs, self.ann_obj.n_vars) - 1
-        # sc.pp.pca(self.ann_obj, n_comps=max_comps)       # Run pca with max comps
-        # cumsum = np.cumsum(self.ann_obj.uns['pca']['variance_ratio'])
+        # max_comps = min(self.adata.n_obs, self.adata.n_vars) - 1
+        # sc.pp.pca(self.adata, n_comps=max_comps)       # Run pca with max comps
+        # cumsum = np.cumsum(self.adata.uns['pca']['variance_ratio'])
         
         # n_comps = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
         # print(f'Retaining {n_comps} principal components (explain >= 99% of variance)')
 
         print('Running PCA...') 
-        sc.pp.pca(self.ann_obj, n_comps=3)
+        sc.pp.pca(self.adata, n_comps=3)
         
         print('Running UMAP analysis; this may take a while...')
-        sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_pcs=3, n_neighbors=50)
-        sc.tl.umap(self.ann_obj, min_dist=0.75, n_components=2)
+        sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=3, n_neighbors=50)
+        sc.tl.umap(self.adata, min_dist=0.75, n_components=2)
         
         print('Generating PCA and UMAP figures...')
-        sc.pl.pca(self.ann_obj, color='class', 
+        sc.pl.pca(self.adata, color='class', 
                   show=False, save='.png')
         print('PCA plot generated successfully.')
-        sc.pl.umap(self.ann_obj, color='class',
+        sc.pl.umap(self.adata, color='class',
                   show=False, save='.png')
         print('UMAP plot generated successfully.')
             
 
-
+        # Plot ROI centroid UMAP projection 
+        print('Generated ROI centroid UMAP projection...')
+        umap_coords = pd.DataFrame(
+          self.adata.obsm['X_umap'], 
+          columns=['UMAP1', 'UMAP2'],
+          index=self.adata.obs.index
+        )
+        umap_coords['sample'] = self.adata.obs['sample'].values
+        umap_coords['class'] = self.adata.obs['class'].values
+        
+        # Average UMAP coords across all pixes in each roi
+        roi_umap = umap_coords.groupby('sample')[['UMAP1', 'UMAP2']].mean().reset_index()
+        roi_umap['class'] = roi_umap['sample'].map(self.roi_labels)
+        roi_umap['label'] = roi_umap['sample'].str.removeprefix('ROI_')
+        
+        
+        fig,ax = plt.subplots(figsize=(8,6))
+        
+        # Plot  pixels
+        ax.scatter(umap_coords['UMAP1'], umap_coords['UMAP2'],
+            c=[class_colors[c] for c in umap_coords['class']],
+            s=2, alpha=0.15, rasterized=True           
+        )
+        # Overlay ROI centroids
+        for _, row in roi_umap.iterrows():
+            ax.scatter(row['UMAP1'], row['UMAP2'],
+                color=class_colors[row['class']],
+                s=180, edgecolors='black', linewidths=0.8, zorder=5)
+            ax.text(row['UMAP1'], row['UMAP2'], row['label'],
+                    fontsize=9, fontweight='bold', ha='left', va='bottom', zorder=6)
+        
+        ax.set_title('UMAP with ROI Centroids')
+        ax.set_xlabel('UMAP1')
+        ax.set_ylabel('UMAP2')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/umap_roi_centroids.png'), dpi=150)
+        plt.close()
+        print('UMAP with ROI centroids generation successful.')
 
     def run_pseudotime_slingshot(self):
         '''
@@ -528,36 +567,36 @@ class SpatialOmicsToolkit:
         # Step 1: Clustering
         # print('Generating Leiden clusters...')
 
-        # # sc.pp.neighbors(self.ann_obj, use_rep='X_pca', n_neighbors=20)     # Overwrite the neighbor graph to be based in PCA space, making leiden clusters more coherent
-        # sc.tl.leiden(self.ann_obj, resolution=0.08)     # resolution up - more clusters V down = fewer clusters, ideally want # clusters to = # disease stages
-        # print(f"Leiden found {self.ann_obj.obs['leiden'].nunique()} clusters")
+        # # sc.pp.neighbors(self.adata, use_rep='X_pca', n_neighbors=20)     # Overwrite the neighbor graph to be based in PCA space, making leiden clusters more coherent
+        # sc.tl.leiden(self.adata, resolution=0.08)     # resolution up - more clusters V down = fewer clusters, ideally want # clusters to = # disease stages
+        # print(f"Leiden found {self.adata.obs['leiden'].nunique()} clusters")
 
         # # Step 2: Set root (identify cluster that Normal cells belong to)
         # print('Identifying root cluster...')
-        # normal_mask = self.ann_obj.obs['class']=='Normal'
-        # normal_clusters = self.ann_obj.obs.loc[normal_mask, 'leiden']
+        # normal_mask = self.adata.obs['class']=='Normal'
+        # normal_clusters = self.adata.obs.loc[normal_mask, 'leiden']
         # root_cluster = int(normal_clusters.mode().iloc[0])
 
-        self.ann_obj.obs['leiden'] = '0'
+        self.adata.obs['leiden'] = '0'
         root_cluster = 0
 
         # Subsample 
         max_cells = 10000
-        if self.ann_obj.n_obs > max_cells:
+        if self.adata.n_obs > max_cells:
             print('Subsampling...')
-            sc.pp.subsample(self.ann_obj, n_obs=max_cells, random_state=42)
+            sc.pp.subsample(self.adata, n_obs=max_cells, random_state=42)
 
         #Step 3: Slingshot fitting
         print('Fitting pseudotime model...')
         slingshot = Slingshot(
-            self.ann_obj, 
+            self.adata, 
             celltype_key='leiden', 
             obsm_key='X_umap', 
             start_node=root_cluster,
             is_debugging='verbose'
         )
         slingshot.fit(num_epochs=1)
-        self.ann_obj.obs['pseudotime'] = slingshot.unified_pseudotime
+        self.adata.obs['pseudotime'] = slingshot.unified_pseudotime
         print('Pseudotime fitting successful. Now proceeding to plotting...')
 
         # Step 4: Plot
@@ -574,16 +613,16 @@ class SpatialOmicsToolkit:
     def run_diffusion_pseudotime(self):
         print('Running diffusion pseudotime...')
         # Identify Normal root
-        normal_idx = self.ann_obj.obs[self.ann_obj.obs['class']=='Normal'].index[0]
-        self.ann_obj.uns['iroot'] = self.ann_obj.obs_names.get_loc(normal_idx)
+        normal_idx = self.adata.obs[self.adata.obs['class']=='Normal'].index[0]
+        self.adata.uns['iroot'] = self.adata.obs_names.get_loc(normal_idx)
 
         # Calculate then store diffusion pseudotime 
-        sc.tl.diffmap(self.ann_obj)
-        sc.tl.dpt(self.ann_obj)
+        sc.tl.diffmap(self.adata)
+        sc.tl.dpt(self.adata)
 
         # Plot
-        X = self.ann_obj.obsm['X_umap']
-        pseudotime = 1- (self.ann_obj.obs['dpt_pseudotime'].values)
+        X = self.adata.obsm['X_umap']
+        pseudotime = 1- (self.adata.obs['dpt_pseudotime'].values)
         
         fig, ax = plt.subplots(figsize=(8,5))
         plot = plt.scatter(X[:,0], X[:,1], 
