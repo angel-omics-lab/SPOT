@@ -19,7 +19,8 @@ dependencies = [
     "scikit-learn",
     "anndata",
     "scanpy",
-    "networkx"
+    "networkx",
+    "openpyxl"
 ]
 
 [tool.hatch.build.targets.wheel]
