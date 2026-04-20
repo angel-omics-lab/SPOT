@@ -641,6 +641,56 @@ class SpatialOmicsToolkit:
         print('Diffusion pseudotime reconstruction successful!')
 
 
+    def run_pseudotime_phate(self):
+        import phate
+        import pcurvepy2 as pcurve
+        print('Running PHATE Pseudotime...')
+        phate_operator = phate.PHATE(knn=5, decay=15, n_jobs=-2, verbose=True)
+        self.adata.obsm['X_phate'] = phate_operator.fit_transform(self.adata.X)
+
+        # Fit principal curve on phate embedding
+        pc = pcurve(k=5)
+        pc.fit(self.adata.obsm['X_phate'])
+
+        # Extract pc outputs 
+        self.adata.obs['phate_pseudotime'] = pc.pseudotime
+        self.adata.obsm['X_phate_curve'] = pc.points_on_curve_
+        phate_curve_path = pc.curve_ 
+
+        # Visualize 
+        fig,axes = plt.subplots(1, 2, figsize=(14,5))
+
+        # Plot 1: pixels colored by pseudotime (w curve)
+        axes[0].scatter(
+            self.adata.obsm['X_phate'][:,0],
+            self.adata.obsm['X_phate'][:,1],
+            c=self.adata.obs['phate_pseudotime'], 
+            cmap='magma', s=2, alpha= 0.7
+        )
+        axes[0].plot(
+            phate_curve_path[:, 0],
+            phate_curve_path[:, 1],
+            'k-', linewidth=2, label='Pseudotime Trajectory'
+        )
+        axes[0].legend()
+
+        # Plot 2: pixels colored by class (w curve)
+        axes[0].scatter(
+            self.adata.obsm['X_phate'][:,0],
+            self.adata.obsm['X_phate'][:,1],
+            c=self.adata.uns['class_colors'], 
+            s=2, alpha= 0.7
+        )
+        axes[1].plot(
+            phate_curve_path[:, 0],
+            phate_curve_path[:, 1],
+            'k-', linewidth=2, label='Pseudotime Trajectory'
+        )
+
+        fig.suptitle('PHATE Pseudotime Trajectory')
+
+        sc.pl.embedding(self.adata, basis='phate', color='timepoint', cmap='magma', title='PHATE Pseudotime')
+
     
 ##### Entire pipeline ##### 
     def allAnalysis(self):
@@ -663,6 +713,7 @@ class SpatialOmicsToolkit:
             # self.compute_mst()
             #self.run_pseudotime_slingshot()
             self.run_diffusion_pseudotime()
+            self.run_pseudotime_phate()
         except Exception as e:
             import traceback
             print('Pipeline broke before finishing.')
