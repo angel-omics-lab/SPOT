@@ -713,7 +713,7 @@ class SpatialOmicsToolkit:
             # self.compute_mst()
             #self.run_pseudotime_slingshot()
             self.run_diffusion_pseudotime()
-            self.run_pseudotime_phate()
+            # self.run_pseudotime_phate()
         except Exception as e:
             import traceback
             print('Pipeline broke before finishing.')
