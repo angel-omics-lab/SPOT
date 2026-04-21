@@ -32,7 +32,7 @@ python your/path/to/script.py    # NOTE: on a Mac, you may need to have python3 
 ```
 
 ## Sample Data
-You can access example data 
+You can access example datasets [here](https://drive.google.com/drive/folders/1-arHKAKMLO0oz5SW2x6M5L1ashdgdIYV?usp=sharing)
 
 ## Issues
 If you are having problems running SPOT, please add an Issue to this repository and/or contact gerdingb@musc.edu
