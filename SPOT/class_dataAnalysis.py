@@ -21,6 +21,7 @@ from scipy.sparse.csgraph import minimum_spanning_tree
 import networkx as nx 
 import time 
 import json
+from pcurvepy2 import PrincipalCurve
 
 
 class SpatialOmicsToolkit:
@@ -329,6 +330,7 @@ class SpatialOmicsToolkit:
         # Generate heatmaps for each peptide as a scatterplot where color indicates mean intensity
         for peptide in self.good_peptides:
             heatmap = plt.figure()
+            plt.rcParams['font.serif'] = ['Arial']
             plt.scatter(self.roi_stats['x'], self.roi_stats['y'], 
                         c=scale(self.roi_stats[peptide]), cmap='jet', s=200)
             cb = plt.colorbar()
@@ -417,6 +419,7 @@ class SpatialOmicsToolkit:
 
         print('Plotting...')
         fig, ax = plt.subplots(figsize=(8, max(4, len(self.good_peptides) * 0.5 + 1)))
+        plt.rcParams['font.serif'] = ['Arial']
         variable_importances.plot.barh(
             ax=ax,
             color='mediumorchid',
@@ -427,7 +430,8 @@ class SpatialOmicsToolkit:
         ax.set_title(f'Ranking of peptide importance in random forest classification model\n Model accuracy: {oob_score_pct}%')
         ax.set_xlabel('Feature importance')
         ax.set_ylabel('Peptide m/z')
-        fig.tight_layout()
+        plt.tight_layout()
+        plt.show()
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/barplot.png'))
         plt.close()
 
@@ -492,20 +496,20 @@ class SpatialOmicsToolkit:
             class_colors[c] for c in self.adata.obs['class'].cat.categories
         ]
 
-        # #Calculate number of components to retain for PCA with Explained Variance Threshold heuristic
-        # print('Calculating optimal number of PCA components...')
-        # max_comps = min(self.adata.n_obs, self.adata.n_vars) - 1
-        # sc.pp.pca(self.adata, n_comps=max_comps)       # Run pca with max comps
-        # cumsum = np.cumsum(self.adata.uns['pca']['variance_ratio'])
+        #Calculate number of components to retain for PCA with Explained Variance Threshold heuristic
+        print('Calculating optimal number of PCA components...')
+        max_comps = min(self.adata.n_obs, self.adata.n_vars) - 1
+        sc.pp.pca(self.adata, n_comps=max_comps)       # Run pca with max comps
+        cumsum = np.cumsum(self.adata.uns['pca']['variance_ratio'])
         
-        # n_comps = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
-        # print(f'Retaining {n_comps} principal components (explain >= 99% of variance)')
+        n_comps = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
+        print(f'Retaining {n_comps} principal components (explain >= 99% of variance)')
 
         print('Running PCA...') 
-        sc.pp.pca(self.adata, n_comps=3)
+        sc.pp.pca(self.adata, n_comps=n_comps)
         
         print('Running UMAP analysis; this may take a while...')
-        sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=3, n_neighbors=50)
+        sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=n_comps, n_neighbors=50)
         sc.tl.umap(self.adata, min_dist=0.75, n_components=2)
         
         print('Generating PCA and UMAP figures...')
@@ -515,7 +519,11 @@ class SpatialOmicsToolkit:
         sc.pl.umap(self.adata, color='class',
                   show=False, save='.png')
         print('UMAP plot generated successfully.')
-            
+        
+        # # Calculate principal curve to be added to UMAP projection 
+        # pc = PrincipalCurve()
+        # pc.fit(self.adata.obsm['X_umap'])
+        # curve_points= pc.points
 
         # Plot ROI centroid UMAP projection 
         print('Generated ROI centroid UMAP projection...')
@@ -538,15 +546,22 @@ class SpatialOmicsToolkit:
         # Plot  pixels
         ax.scatter(umap_coords['UMAP1'], umap_coords['UMAP2'],
             c=[class_colors[c] for c in umap_coords['class']],
-            s=2, alpha=0.15, rasterized=True           
+            s=0.6, alpha=0.15, rasterized=True           
         )
         # Overlay ROI centroids
         for _, row in roi_umap.iterrows():
             ax.scatter(row['UMAP1'], row['UMAP2'],
                 color=class_colors[row['class']],
-                s=180, edgecolors='black', linewidths=0.8, zorder=5)
+                s=180, edgecolors='black', linewidths=0.5, zorder=5)
             ax.text(row['UMAP1'], row['UMAP2'], row['label'],
                     fontsize=9, fontweight='bold', ha='left', va='bottom', zorder=6)
+            
+        # # Overlay principal curve
+        # ax.plot(
+        #     curve_points[:, 0], 
+        #     curve_points[:, 1],
+        #     color='black', linewidth=2, zorder=4
+        # )
         
         ax.set_title('UMAP with ROI Centroids')
         ax.set_xlabel('UMAP1')
@@ -558,69 +573,23 @@ class SpatialOmicsToolkit:
         plt.close()
         print('UMAP with ROI centroids generation successful.')
 
-    def run_pseudotime_slingshot(self):
-        '''
-        Runs Slingshot pseudotime reconstruction. Outputs UMAP with Slingshot principal curves and ROI centroids overlaid. 
-        '''
-        from pyslingshot import Slingshot
-        print('Running pseudotime reconstruction. This may take a while...')
-        # Step 1: Clustering
-        # print('Generating Leiden clusters...')
 
-        # # sc.pp.neighbors(self.adata, use_rep='X_pca', n_neighbors=20)     # Overwrite the neighbor graph to be based in PCA space, making leiden clusters more coherent
-        # sc.tl.leiden(self.adata, resolution=0.08)     # resolution up - more clusters V down = fewer clusters, ideally want # clusters to = # disease stages
-        # print(f"Leiden found {self.adata.obs['leiden'].nunique()} clusters")
 
-        # # Step 2: Set root (identify cluster that Normal cells belong to)
-        # print('Identifying root cluster...')
-        # normal_mask = self.adata.obs['class']=='Normal'
-        # normal_clusters = self.adata.obs.loc[normal_mask, 'leiden']
-        # root_cluster = int(normal_clusters.mode().iloc[0])
-
-        self.adata.obs['leiden'] = '0'
-        root_cluster = 0
-
-        # Subsample 
-        max_cells = 10000
-        if self.adata.n_obs > max_cells:
-            print('Subsampling...')
-            sc.pp.subsample(self.adata, n_obs=max_cells, random_state=42)
-
-        #Step 3: Slingshot fitting
-        print('Fitting pseudotime model...')
-        slingshot = Slingshot(
-            self.adata, 
-            celltype_key='leiden', 
-            obsm_key='X_umap', 
-            start_node=root_cluster,
-            is_debugging='verbose'
-        )
-        slingshot.fit(num_epochs=1)
-        self.adata.obs['pseudotime'] = slingshot.unified_pseudotime
-        print('Pseudotime fitting successful. Now proceeding to plotting...')
-
-        # Step 4: Plot
-        fig, axes = plt.subplots(ncols=2, figsize=(12,4))
-        axes[0].set_title('Clusters')
-        axes[1].set_title('Pseudotime')
-
-        slingshot.plotter.curves(axes[0], slingshot.curves)
-        slingshot.plotter.clusters(axes[0], labels=np.arange(slingshot.num_clusters), s=6, alpha=0.5)
-        slingshot.plotter.clusters(axes[1], color_mode='pseudotime', s=6)
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/pseudotime.png'))
-        
     
     def run_diffusion_pseudotime(self):
         print('Running diffusion pseudotime...')
         # Identify Normal root
+        print('Identifying normal root...')
         normal_idx = self.adata.obs[self.adata.obs['class']=='Normal'].index[0]
         self.adata.uns['iroot'] = self.adata.obs_names.get_loc(normal_idx)
 
-        # Calculate then store diffusion pseudotime 
+        # Calculate then store diffusion pseudotime
+        print('Calculating pseudotime...')
+        sc.pp.neighbors(self.adata, n_pcs=10) 
         sc.tl.diffmap(self.adata)
         sc.tl.dpt(self.adata)
 
-        # Plot
+        # UMAP + DPT 
         X = self.adata.obsm['X_umap']
         pseudotime = 1- (self.adata.obs['dpt_pseudotime'].values)
         
@@ -641,55 +610,63 @@ class SpatialOmicsToolkit:
         print('Diffusion pseudotime reconstruction successful!')
 
 
-    def run_pseudotime_phate(self):
-        import phate
-        import pcurvepy2 as pcurve
-        print('Running PHATE Pseudotime...')
-        phate_operator = phate.PHATE(knn=5, decay=15, n_jobs=-2, verbose=True)
-        self.adata.obsm['X_phate'] = phate_operator.fit_transform(self.adata.X)
+    def run_diffusion_pseudotime_w_curve(self):
+        print('Running diffusion pseudotime...')
+        sc.settings.verbosity = 3
+        from sklearn.neighbors import NearestNeighbors
+        # Identify Normal root
+        print('Identifying normal root...')
+        normal_idx = self.adata.obs[self.adata.obs['class']=='Normal'].index[0]
+        self.adata.uns['iroot'] = self.adata.obs_names.get_loc(normal_idx)
 
-        # Fit principal curve on phate embedding
-        pc = pcurve(k=5)
-        pc.fit(self.adata.obsm['X_phate'])
+        # Calculate then store diffusion pseudotime
+        print('Calculating pseudotime...')
+        sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=15) 
+        sc.tl.diffmap(self.adata)
+        sc.tl.dpt(self.adata)
 
-        # Extract pc outputs 
-        self.adata.obs['phate_pseudotime'] = pc.pseudotime
-        self.adata.obsm['X_phate_curve'] = pc.points_on_curve_
-        phate_curve_path = pc.curve_ 
+        # Fit principal curve in diffusion map space (DC1, DC2) 
+        dc_coords = self.adata.obsm['X_diffmap'][:, 1:3]
+        pc = PrincipalCurve(k=5)
+        pc.fit(dc_coords)
 
-        # Visualize 
-        fig,axes = plt.subplots(1, 2, figsize=(14,5))
+        
+        pseudotime_interp, point_inter, order = pc.unpack_params()  
 
-        # Plot 1: pixels colored by pseudotime (w curve)
-        axes[0].scatter(
-            self.adata.obsm['X_phate'][:,0],
-            self.adata.obsm['X_phate'][:,1],
-            c=self.adata.obs['phate_pseudotime'], 
-            cmap='magma', s=2, alpha= 0.7
+
+        # Project curve onto UMAP space
+        # For each point on pc (in diff space), find nearest neighbor, then look up that neighbor's UMAP coordinate
+        neighbors = NearestNeighbors(n_neighbors=1).fit(dc_coords)
+        _, indices = neighbors.kneighbors(pc.points)
+        curve_umap = self.adata.obsm['X_umap'][indices.flatten()]
+        
+
+        # Plot UMAP w DPT colors and DPT principal curve overlaid 
+        X = self.adata.obsm['X_umap']
+        dpt_pseudotime = self.adata.obs['dpt_pseudotime'].values
+        
+        fig, ax = plt.subplots(figsize=(8,5))
+        plot = plt.scatter(X[:,0], X[:,1], 
+                         c=dpt_pseudotime, cmap='jet', s=4, alpha=0.4, rasterized=True
+                         )
+        plt.colorbar(plot, ax=ax, shrink=0.8)
+        ax.set_title('Diffusion Pseudotime')
+        ax.set_xlabel('UMAP 1')
+        ax.set_ylabel('UMAP 2')
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        ax.plot(
+            curve_umap[:, 0],
+            curve_umap[:, 1],
+            color='black', linewidth=2, zorder=4
         )
-        axes[0].plot(
-            phate_curve_path[:, 0],
-            phate_curve_path[:, 1],
-            'k-', linewidth=2, label='Pseudotime Trajectory'
-        )
-        axes[0].legend()
 
-        # Plot 2: pixels colored by class (w curve)
-        axes[0].scatter(
-            self.adata.obsm['X_phate'][:,0],
-            self.adata.obsm['X_phate'][:,1],
-            c=self.adata.uns['class_colors'], 
-            s=2, alpha= 0.7
-        )
-        axes[1].plot(
-            phate_curve_path[:, 0],
-            phate_curve_path[:, 1],
-            'k-', linewidth=2, label='Pseudotime Trajectory'
-        )
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/dpt_pseudotime.png'))
+        plt.close()
+        print('Diffusion pseudotime reconstruction successful!')
 
-        fig.suptitle('PHATE Pseudotime Trajectory')
-
-        sc.pl.embedding(self.adata, basis='phate', color='timepoint', cmap='magma', title='PHATE Pseudotime')
 
     
 ##### Entire pipeline ##### 
@@ -703,17 +680,17 @@ class SpatialOmicsToolkit:
             self.peptide_sparsity_filter()
             self.normalize_intensities()
             self.diff_expression_test()
-            self.generate_boxplots()
+            # self.generate_boxplots()
             self.get_roi_stats()
-            self.generate_spatial_heatmap()
-            self.make_hierarchical_clusters()
-            self.get_random_forest_ranking()
+            # self.generate_spatial_heatmap()
+            # self.make_hierarchical_clusters()
+            # self.get_random_forest_ranking()
             self.create_anndata_object()
             self.run_pixel_dim_reduction()
             # self.compute_mst()
             #self.run_pseudotime_slingshot()
-            self.run_diffusion_pseudotime()
-            # self.run_pseudotime_phate()
+            self.run_diffusion_pseudotime_w_curve()
+            #self.run_pseudotime_phate()
         except Exception as e:
             import traceback
             print('Pipeline broke before finishing.')

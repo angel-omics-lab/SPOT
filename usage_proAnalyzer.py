@@ -10,3 +10,4 @@ JSON_PATH = r'C:\Users\AngelLab\Desktop\SPOT_stuff\example_roi_labels.json'
 spot = SpatialOmicsToolkit(data_path=DATA_PATH, json_path=JSON_PATH)
 
 spot.allAnalysis()
+
