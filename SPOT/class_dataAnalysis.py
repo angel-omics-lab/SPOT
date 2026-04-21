@@ -506,10 +506,10 @@ class SpatialOmicsToolkit:
         print(f'Retaining {n_comps} principal components (explain >= 99% of variance)')
 
         print('Running PCA...') 
-        sc.pp.pca(self.adata, n_comps=n_comps)
+        sc.pp.pca(self.adata, n_comps=3)
         
         print('Running UMAP analysis; this may take a while...')
-        sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=n_comps, n_neighbors=50)
+        sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=3, n_neighbors=50)
         sc.tl.umap(self.adata, min_dist=0.75, n_components=2)
         
         print('Generating PCA and UMAP figures...')
@@ -616,18 +616,26 @@ class SpatialOmicsToolkit:
         from sklearn.neighbors import NearestNeighbors
         # Identify Normal root
         print('Identifying normal root...')
-        normal_idx = self.adata.obs[self.adata.obs['class']=='Normal'].index[0]
-        self.adata.uns['iroot'] = self.adata.obs_names.get_loc(normal_idx)
+        normal_mask = self.adata.obs['class'] == 'Normal'
+        normal_coords = self.adata.obsm['X_pca'][normal_mask]
+        normal_centroid = normal_coords.mean(axis=0, keepdims=True)
+        # Find the Normal pixel closest to the centroid
+        nbrs = NearestNeighbors(n_neighbors=1).fit(normal_coords)
+        _, local_idx = nbrs.kneighbors(normal_centroid)
+        # Map back to global adata index
+        normal_global_indices = np.where(normal_mask)[0]
+        self.adata.uns['iroot'] = normal_global_indices[local_idx[0][0]]
+
 
         # Calculate then store diffusion pseudotime
         print('Calculating pseudotime...')
-        sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=15) 
+        sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=3) 
         sc.tl.diffmap(self.adata)
         sc.tl.dpt(self.adata)
 
         # Fit principal curve in diffusion map space (DC1, DC2) 
         dc_coords = self.adata.obsm['X_diffmap'][:, 1:3]
-        pc = PrincipalCurve(k=5)
+        pc = PrincipalCurve(k=2)
         pc.fit(dc_coords)
 
         
@@ -647,9 +655,9 @@ class SpatialOmicsToolkit:
         
         fig, ax = plt.subplots(figsize=(8,5))
         plot = plt.scatter(X[:,0], X[:,1], 
-                         c=dpt_pseudotime, cmap='jet', s=4, alpha=0.4, rasterized=True
+                         c=dpt_pseudotime, cmap='jet', s=0.6, alpha=0.4, rasterized=True
                          )
-        plt.colorbar(plot, ax=ax, shrink=0.8)
+        plt.colorbar(plot, ax=ax, shrink=0.8, alpha=0.4)
         ax.set_title('Diffusion Pseudotime')
         ax.set_xlabel('UMAP 1')
         ax.set_ylabel('UMAP 2')
