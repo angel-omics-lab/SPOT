@@ -39,8 +39,16 @@ class SpatialOmicsToolkit:
         try: 
             file = json.load(open(json_path))
             self.roi_labels = {}
+            self.roi_classes = []
+            self.roi_class_colors = {}
             for entry in file['roi_labels']:
                 self.roi_labels.update(entry)
+            for entry in file['classes']:
+                self.roi_class_colors.update(entry)
+            self.roi_classes = list(self.roi_class_colors.keys())
+            print('ROI classes: ', self.roi_classes)
+            print('ROI class colors: ', self.roi_class_colors)
+
         except Exception as e:
             print('Issue loading and/or reading json file, check file path.')
             print(e)
@@ -559,7 +567,7 @@ class SpatialOmicsToolkit:
         for _, row in roi_umap.iterrows():
             ax.scatter(row['UMAP2'], row['UMAP3'],
                 color=class_colors[row['class']],
-                s=180, edgecolors='black', linewidths=0.5, zorder=5)
+                s=100, edgecolors='black', linewidths=0.5, zorder=5)
             ax.text(row['UMAP2'], row['UMAP3'], row['label'],
                     fontsize=9, fontweight='bold', ha='left', va='bottom', zorder=6)
             
