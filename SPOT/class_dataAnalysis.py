@@ -503,14 +503,14 @@ class SpatialOmicsToolkit:
         cumsum = np.cumsum(self.adata.uns['pca']['variance_ratio'])
         
         n_comps = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
-        print(f'Retaining {n_comps} principal components (explain >= 99% of variance)')
+        print(f'Retaining {n_comps} principal components (explain >= 95% of variance)')
 
         print('Running PCA...') 
-        sc.pp.pca(self.adata, n_comps=3)
+        sc.pp.pca(self.adata, n_comps=20)
         
         print('Running UMAP analysis; this may take a while...')
         sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=3, n_neighbors=50)
-        sc.tl.umap(self.adata, min_dist=0.75, n_components=2)
+        sc.tl.umap(self.adata, min_dist=0.75, n_components=3)
         
         print('Generating PCA and UMAP figures...')
         sc.pl.pca(self.adata, color='class', 
@@ -529,31 +529,38 @@ class SpatialOmicsToolkit:
         print('Generated ROI centroid UMAP projection...')
         umap_coords = pd.DataFrame(
           self.adata.obsm['X_umap'], 
-          columns=['UMAP1', 'UMAP2'],
+          columns=['UMAP1', 'UMAP2', 'UMAP3'],
           index=self.adata.obs.index
         )
         umap_coords['sample'] = self.adata.obs['sample'].values
         umap_coords['class'] = self.adata.obs['class'].values
         
         # Average UMAP coords across all pixes in each roi
-        roi_umap = umap_coords.groupby('sample')[['UMAP1', 'UMAP2']].mean().reset_index()
+        roi_umap = umap_coords.groupby('sample')[['UMAP1', 'UMAP2', 'UMAP3']].mean().reset_index()
         roi_umap['class'] = roi_umap['sample'].map(self.roi_labels)
         roi_umap['label'] = roi_umap['sample'].str.removeprefix('ROI_')
+
+        # Add roi_umap to self.roi_stats to can be accessed by mst proj fcn
+        self.roi_stats = self.roi_stats.merge(
+            roi_umap[['sample','UMAP1', 'UMAP2', 'UMAP3']], 
+            left_on='roi', right_on='sample',
+            how='left'
+        ).drop(columns='sample')
         
         
         fig,ax = plt.subplots(figsize=(8,6))
         
         # Plot  pixels
-        ax.scatter(umap_coords['UMAP1'], umap_coords['UMAP2'],
+        ax.scatter(umap_coords['UMAP2'], umap_coords['UMAP3'],
             c=[class_colors[c] for c in umap_coords['class']],
             s=0.6, alpha=0.15, rasterized=True           
         )
         # Overlay ROI centroids
         for _, row in roi_umap.iterrows():
-            ax.scatter(row['UMAP1'], row['UMAP2'],
+            ax.scatter(row['UMAP2'], row['UMAP3'],
                 color=class_colors[row['class']],
                 s=180, edgecolors='black', linewidths=0.5, zorder=5)
-            ax.text(row['UMAP1'], row['UMAP2'], row['label'],
+            ax.text(row['UMAP2'], row['UMAP3'], row['label'],
                     fontsize=9, fontweight='bold', ha='left', va='bottom', zorder=6)
             
         # # Overlay principal curve
@@ -593,7 +600,7 @@ class SpatialOmicsToolkit:
         X = self.adata.obsm['X_umap']
         pseudotime = 1- (self.adata.obs['dpt_pseudotime'].values)
         
-        fig, ax = plt.subplots(figsize=(8,5))
+        fig, ax = plt.subplots(figsize=(10,5))
         plot = plt.scatter(X[:,0], X[:,1], 
                          c=pseudotime, cmap='magma', s=4, alpha=0.4, rasterized=True
                          )
@@ -607,39 +614,7 @@ class SpatialOmicsToolkit:
         plt.tight_layout()
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/dpt_pseudotime.png'))
         plt.close()
-        print('Diffusion pseudotime reconstruction successful!')
-
-
-    def run_diffusion_pseudotime_w_curve(self):
-        print('Running diffusion pseudotime...')
-        sc.settings.verbosity = 3
-        from sklearn.neighbors import NearestNeighbors
-        # Identify Normal root
-        print('Identifying normal root...')
-        normal_mask = self.adata.obs['class'] == 'Normal'
-        normal_coords = self.adata.obsm['X_pca'][normal_mask]
-        normal_centroid = normal_coords.mean(axis=0, keepdims=True)
-        # Find the Normal pixel closest to the centroid
-        nbrs = NearestNeighbors(n_neighbors=1).fit(normal_coords)
-        _, local_idx = nbrs.kneighbors(normal_centroid)
-        # Map back to global adata index
-        normal_global_indices = np.where(normal_mask)[0]
-        self.adata.uns['iroot'] = normal_global_indices[local_idx[0][0]]
-
-
-        # Calculate then store diffusion pseudotime
-        print('Calculating pseudotime...')
-        sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=3) 
-        sc.tl.diffmap(self.adata)
-        sc.tl.dpt(self.adata)
-
-        # Fit principal curve in diffusion map space (DC1, DC2) 
-        dc_coords = self.adata.obsm['X_diffmap'][:, 1:3]
-        pc = PrincipalCurve(k=2)
-        pc.fit(dc_coords)
-
-        
-        pseudotime_interp, point_inter, order = pc.unpack_params()  
+        print('Diffusion pseudotime reconstruction successful!')  
 
 
         # Project curve onto UMAP space
@@ -676,7 +651,227 @@ class SpatialOmicsToolkit:
         print('Diffusion pseudotime reconstruction successful!')
 
 
+    def run_dpt_no_remapping(self):
+        print('Running diffusion pseudotime...')
+        sc.settings.verbosity = 3
+        
+        print('Identifying normal root...')
+        from sklearn.neighbors import NearestNeighbors
+        print('Identifying normal root...')
+        normal_mask = self.adata.obs['class'] == 'Normal'
+        normal_coords = self.adata.obsm['X_pca'][normal_mask]
+        normal_centroid = normal_coords.mean(axis=0, keepdims=True)
+        # Find the Normal pixel closest to the centroid
+        nbrs = NearestNeighbors(n_neighbors=1).fit(normal_coords)
+        _, local_idx = nbrs.kneighbors(normal_centroid)
+        # Map back to global adata index
+        normal_global_indices = np.where(normal_mask)[0]
+        self.adata.uns['iroot'] = normal_global_indices[local_idx[0][0]]
+
+        # Calculate then store dpt
+        print('Calculating pseudotime...')
+        sc.pp.neighbors(self.adata, n_pcs=10) 
+        sc.tl.diffmap(self.adata)
+        sc.tl.dpt(self.adata)
+
+        # Diffusion Components Space + DPT
+        X = self.adata.obsm['X_diffmap']
+        classes = self.adata.obs['class']
+        pseudotime = 1 - (self.adata.obs['dpt_pseudotime'].values)
+
+        # Plot 1: colored by pseudotime
+        fig, ax = plt.subplots(figsize=(8,5))
+        plot = ax.scatter(X[:, 1], X[:, 2],
+                        c=pseudotime, cmap='jet', s=4, alpha=0.4, rasterized=True)
+        plt.colorbar(plot, ax=ax, shrink=0.8)
+        ax.set_title('Diffusion Map — Pseudotime')
+        ax.set_xlabel('DC 1')
+        ax.set_ylabel('DC 2')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/dpt_pseudotime.png'))
+        plt.close()
+        print('Diffusion pseudotime reconstruction successful!')
+
+        # Plot 2: colored by class
+        dc1 = X[:, 1]
+        dc2 = X[:, 2]
+        q_low, q_high = np.percentile(dc1, [1, 99])
+        mask = (dc1 >= q_low) & (dc1 <= q_high)
+        fig, ax = plt.subplots(figsize=(8, 5))
+        for cls in classes.unique():
+            cls_mask = (classes == cls) & mask 
+            ax.scatter(X[cls_mask, 1], X[cls_mask, 2],
+                    s=0.6, alpha=0.4, label=cls, rasterized=True)
+        ax.legend(markerscale=5)
+        ax.set_title('Diffusion Map — Class')
+        ax.set_xlabel('DC 1')
+        ax.set_ylabel('DC 2')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/dpt_pseudotime_class.png'))
+        plt.close()
+        print('Diffusion pseudotime reconstruction successful!')
+
+
+    def get_roi_level_mst(self):
+        '''
+        Builds a pseudotime MST on ROI spatial centroids. 
+        Nodes = ROIs (from roi_stats), edges weighted by Euclidean distance between centroids
+        Pseudotime is computed as shortest path distance from Normal root in the MST
+
+        Returns:
+            None, but saves mst_pseudotime.png and stores pseusotime in self.roi_stats['mst_pseudotime']
+        '''
+        print('Building ROI-level MST...')
+
+        # Step 1: Build distance matrix on spatial centroids
+        coords = self.roi_stats[self.good_peptides].values
+        dist_matrix = cdist(coords, coords, metric='Euclidean')
+
+        # Step 2: Compute MST
+        mst_sparse = minimum_spanning_tree(dist_matrix)
+        mst_array = mst_sparse.toarray()
+
+        # Step 3: Build Networkx graph from MST
+        G = nx.Graph()
+        roi_names = self.roi_stats['roi'].values
+        for i, name in enumerate(roi_names):
+            G.add_node(i, roi=name, cls=self.roi_stats['class'].iloc[i])
+        
+        n = len(roi_names)
+        for i in range(n):
+            for j in range(n):
+                w = mst_array[i, j]
+                if w > 0: 
+                    G.add_edge(i, j, weight=w)
+
+        # Store
+        self.mst_graph = G
+        self.mst_coords = coords    # median intensities, shape (n,2) 
+        
+        # Step 4: Root at Normal ROI 
+        normal_mask = self.roi_stats['class'] == 'Normal'
+        normal_indices = self.roi_stats[normal_mask].index.tolist()
+        normal_coords = coords[normal_mask]
+        normal_centroid = normal_coords.mean(axis=0)
+        dists_to_centroid = np.linalg.norm(normal_coords - normal_centroid, axis=1)
+        local_root = np.argmin(dists_to_centroid)
+        root_node = normal_indices[local_root]
+
+
+        # Step 5: Pseudotime = shortest path length from root (in MST edge weights)
+        path_lengths = nx.single_source_dijkstra_path_length(G, root_node, weight='weight')
+        max_len = max(path_lengths.values()) or 1       # avoid dividing by zero
+        self.roi_stats['mst_pseudotime'] = [path_lengths.get(i, np.nan) / max_len for i in range(n)]
+
+
+        # Step 6: Plot
+        class_colors = {'Normal': 'green', 'DCIS':'dodgerblue', 'IBC':'orange'}
+        pos = {i: (coords[i, 0], coords[i, 1]) for i in range(n)}
+        labels = {i: roi_names[i].removeprefix('ROI_') for i in range(n)}
+        node_colors = [class_colors.get(G.nodes[i]['cls'], 'black') for i in G.nodes]
+
+        fig,ax = plt.subplots(figsize=(8,6))
+
+        # Draw MST edges manually so we control the axes object
+        for i, j in G.edges():
+            ax.plot([coords[i, 0], coords[j, 0]],
+                    [coords[i, 1], coords[j, 1]],
+                    color='black', linewidth=1, zorder=1)
+
+        # Draw ROI centroid nodes
+        for i in range(n):
+            ax.scatter(coords[i,0], coords[i,1],
+                       color=node_colors[i], s=300, edgecolors='black', linewidths=0.5, zorder=5)
+            ax.text(coords[i,0], coords[i,1], labels[i], 
+                    fontsize=8, fontweight='bold', ha='left', va='bottom', zorder=6)
+
+        # Legend
+        for cls, col in class_colors.items():
+            ax.scatter([], [], color=col, label=cls, s=80)
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+
+        ax.set_title('ROI-level MST')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/mst_pseudotime.png'),
+                    dpi=150, bbox_inches='tight')
+        plt.close()
+        print('ROI-level MST pseudotime complete. Saved to results/mst_pseudotime.png')
+
+
+    def project_mst_onto_umap(self):
+        '''
+        Projects the ROI-level MST onto UMAP space. 
+        The MST topology/connectivity is reconstructed identically, but nodes are at their mean UMAP coordinates instead.
+
+        Returns:
+            None, but saves mst_umap_projection.png to results/
+        '''
+        print('Projecting ROI-level MST onto UMAP space...')
+
+        # Check existance of required columns
+        if not hasattr(self, 'mst_graph') or not hasattr(self, 'mst_coords'):
+            raise RuntimeError('MST construction data not found, Run get_roi_level_mst() first.')
+        if 'UMAP1' not in self.roi_stats.columns: 
+            raise ValueError(f'roi_stats is missing columns UMAP1, UMAP2. Make sure run_pixel_dim_reduction() is run first.')
+        
+        # Create plotting assets
+        G = self.mst_graph
+        umap_coords = self.roi_stats[['UMAP1', 'UMAP2']].values
+        roi_names = self.roi_stats['roi'].values
+        n = len(roi_names)
+
+        class_colors = {'Normal':'green', 'DCIS':'dodgerblue', 'IBC':'orange'}
+        node_colors = [class_colors.get(G.nodes[i]['cls'], 'black') for i in G.nodes]
+        labels = {i: roi_names[i].removeprefix('ROI_') for i in range(n)}
+
+        # Plot
+        fig, ax = plt.subplots(figsize=(8,6))
+
+        for i, j in G.edges():
+            ax.plot([umap_coords[i, 0], umap_coords[j, 0]],
+                    [umap_coords[i, 1], umap_coords[j, 1]],
+                    color='black', linewidth=1, zorder=1)
+
+        for i in range(n):
+            ax.scatter(umap_coords[i, 0], umap_coords[i, 1],
+                    color=node_colors[i], s=300,
+                    edgecolors='black', linewidths=0.5, zorder=5)
+            ax.text(umap_coords[i, 0], umap_coords[i, 1], labels[i],
+                    fontsize=8, fontweight='bold', ha='left', va='bottom', zorder=6)
+            
+        ax.scatter(self.adata.obsm['X_umap'][:,0], self.adata.obsm['X_umap'][:,1], 
+                   c=[class_colors[c] for c in self.adata.obs['class']], 
+                   s=0.6, alpha=0.15, rasterized=True
+                )
+            
+        # Legend 
+        for cls, col in class_colors.items():
+            ax.scatter([], [], color=col, label=cls, s=80)
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+
     
+
+        ax.set_title('ROI-level MST (UMAP Projection)')
+        ax.set_xlabel('UMAP1')
+        ax.set_ylabel('UMAP2')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/mst_umap_projection.png'),
+                    dpi=150, bbox_inches='tight')
+        plt.close()
+        print('MST UMAP projection complete. Saved to results/mst_umap_projection.png')
+    
+    # def project_mst_onto_diffmap(self):
+
+
+
 ##### Entire pipeline ##### 
     def allAnalysis(self):
         start = time.time()
@@ -697,8 +892,11 @@ class SpatialOmicsToolkit:
             self.run_pixel_dim_reduction()
             # self.compute_mst()
             #self.run_pseudotime_slingshot()
-            self.run_diffusion_pseudotime_w_curve()
-            #self.run_pseudotime_phate()
+            #self.run_diffusion_pseudotime_w_curve()
+            #self.run_dpt_no_remapping()
+            #self.run_phate()
+            self.get_roi_level_mst()
+            self.project_mst_onto_umap()
         except Exception as e:
             import traceback
             print('Pipeline broke before finishing.')
