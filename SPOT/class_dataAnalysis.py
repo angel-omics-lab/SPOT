@@ -108,19 +108,11 @@ class SpatialOmicsToolkit:
             data = self.data[region]
             intensities = data.iloc[:, 4:]      # Skip first 4 columns 
             print(f'Processing {region}...')
-            intensities = intensities.fillna(0)        # Change all NaN values to 0 
-            # zeros = (intensities==0).astype(int).sum().sum()      # Number of 0 intensities
-            # total = intensities.shape[0]*data.shape[1]     # Total number of intensities
-            
-            # if zeros > (0.25*total):       # Remove ROI from list if >25% of peptides are 0 
-            #     to_remove.append(region)
-            #     print(f'Removed {region} with {label} label from list: >25% zero intensities.')
-            # else: 
-            #     print(f'{region} accepted')
+            # intensities = intensities.fillna(0)        # Change all NaN values to 0 
             NA_prop = (intensities == 0).mean()
             if (NA_prop > 0.25).mean() > 0.25:
                 to_remove.append(region)
-                print(f'Removed {region} with {label} label from list: >25% zero intensities.')
+                #print(f'Removed {region} with {label} label from list: >25% zero intensities.')
             else: 
                 print(f'{region} accepted')
         for region in to_remove:
@@ -152,7 +144,7 @@ class SpatialOmicsToolkit:
                 
             # Generate colored scatter plot
         sns.scatterplot(data=roi_stats, x='x', y='y', 
-                        hue='class', palette={'DCIS':'dodgerblue', 'IBC':'orange', 'Normal':'green'},      
+                        hue='class', palette=self.roi_class_colors,      
                         s=250
         )
         for x, y, roi in zip(roi_stats['x'], roi_stats['y'], roi_stats['roi']):
@@ -234,7 +226,7 @@ class SpatialOmicsToolkit:
         results_list = []
         # Identify significant peptide 
         print('Identifying differentially expressed peptides...')
-        for peptide in self.good_peptides:
+        for peptide in self.good_peptides:                                                                            # NOTE 
             group1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']     # Mean intensities of peptide in DCIS (class 1) rois        
             group2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'IBC']      # Mean Intensities of peptide in IBC (class 2) rois
             # Run KW
@@ -251,9 +243,11 @@ class SpatialOmicsToolkit:
         # Save peptides whose q value is <= 0.05
         self.good_peptides = results_df[results_df['qvalue_bh'] <= 0.05]['peptide'].tolist()
         if not self.good_peptides: 
-            raise ValueError('No peptides were identified to be significant with 95 percent confidence. Pipeline stopped.') 
+            raise ValueError('No peptides were identified to be significant with 95 percent confidence. Pipeline stopped.')
         print('Differential analysis complete. Significant peptides: ', self.good_peptides)
         print(f'{len(reject)} peptides removed: non-significant')
+        print('Saving filtered peptide list to data frame...')
+        self.output_excel = results_df.set_index('peptide')
         
     
 
@@ -263,14 +257,17 @@ class SpatialOmicsToolkit:
         In this case, the two classes we choose are IBC and DCIS, but this can be changed. 
         '''
         print('Generating box plots for significant peptides...')
-
         for peptide in self.good_peptides:
             fig, ax = plt.subplots(figsize=(2.5, 4))  # create axes explicitly
             plt.rcParams['font.serif'] = ['Arial']
-            plot_data = (
-                [{'Intensity': val, 'Class':'DCIS'} for val in [self.data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'DCIS' ]]
+
+            medians_dcis = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']
+            medians_ibc = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'IBC'] 
+
+            plot_data = (                    # NOTE                   # NOTE
+                [{'Intensity': val, 'Class':'DCIS'} for val in medians_dcis]
                 +
-                [{'Intensity': val, 'Class':'IBC'} for val in [self.data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'IBC' ]]
+                [{'Intensity': val, 'Class':'IBC'} for val in medians_ibc]
             )
             plot_df = pd.DataFrame(plot_data)
 
@@ -278,7 +275,7 @@ class SpatialOmicsToolkit:
                 data=plot_df, 
                 x='Class', y='Intensity', 
                 hue='Class', 
-                palette={'DCIS':'dodgerblue', 'IBC':'orange'},
+                palette={'DCIS':'dodgerblue', 'IBC':'orange'},      # NOTE
                 ax=ax
             )
 
@@ -300,6 +297,8 @@ class SpatialOmicsToolkit:
 
         print('Box plots generation successful!')
         sns.reset_orig()
+
+
 
 
     def get_roi_stats(self):
@@ -324,6 +323,16 @@ class SpatialOmicsToolkit:
         self.roi_stats['class'] = self.roi_stats['roi'].map(self.roi_labels)
 
         print('ROI calculations successful!')
+        print('Saving medians to datafram...')                  # NOTE
+        dcis_rows = self.roi_stats[self.roi_stats['class'] == 'DCIS'][self.good_peptides]
+        ibc_rows  = self.roi_stats[self.roi_stats['class'] == 'IBC'][self.good_peptides]
+
+        plot_data_df = pd.DataFrame({
+            'median_dcis_allrois': dcis_rows.median(),      # NOTE
+            'median_ibc_allrois':  ibc_rows.median(),       # NOTE
+        }) 
+
+        self.output_excel = pd.concat([self.output_excel, plot_data_df], axis=1)
 
 
     def generate_spatial_heatmap(self):
@@ -374,7 +383,7 @@ class SpatialOmicsToolkit:
  
         # Formatting
         plt.rcParams['axes.prop_cycle'] = plt.cycler(color=['mediumorchid', 'lightcoral', 'lightblue'])
-        color_map = {'DCIS': 'dodgerblue', 'IBC': 'orange', 'Normal': 'green'}
+        color_map = self.roi_class_colors
         leaf_order = dend['ivl']  # ROIs in dendrogram order
         label_colors = [color_map[self.roi_stats.set_index('roi').loc[roi, 'class']] for roi in leaf_order]
         ax = plt.gca()
@@ -382,8 +391,8 @@ class SpatialOmicsToolkit:
             tick.set_color(color)
         plt.yticks([])
         # Create legend
-        class_labels = [plt.Rectangle((0,0),1,1, color=c) for c in ['dodgerblue', 'orange', 'green']]
-        plt.legend(class_labels, ['DCIS', 'IBC', 'Normal'], bbox_to_anchor=(1.05, -0.25), loc= 'lower left')
+        class_labels = [plt.Rectangle((0,0),1,1, color=c) for c in ['dodgerblue', 'orange', 'green']]       # NOTE 
+        plt.legend(class_labels, self.roi_classes, bbox_to_anchor=(1.05, -0.25), loc= 'lower left')
 
         plt.title('ROI clusters based on peptide profile similarity')
         plt.tight_layout()
@@ -439,7 +448,6 @@ class SpatialOmicsToolkit:
         ax.set_xlabel('Feature importance')
         ax.set_ylabel('Peptide m/z')
         plt.tight_layout()
-        plt.show()
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/barplot.png'))
         plt.close()
 
@@ -498,7 +506,7 @@ class SpatialOmicsToolkit:
         '''
         sc.settings.figdir = os.path.join(os.path.dirname(self.data_path), "results")
         # Register class colors so scanpy can use them directly 
-        class_colors = {'Normal':'green', 'DCIS': 'dodgerblue', 'IBC': 'orange'}
+        class_colors = self.roi_class_colors
         self.adata.obs['class'] = pd.Categorical(self.adata.obs['class'])
         self.adata.uns['class_colors'] = [
             class_colors[c] for c in self.adata.obs['class'].cat.categories
@@ -559,16 +567,16 @@ class SpatialOmicsToolkit:
         fig,ax = plt.subplots(figsize=(8,6))
         
         # Plot  pixels
-        ax.scatter(umap_coords['UMAP2'], umap_coords['UMAP3'],
+        ax.scatter(umap_coords['UMAP1'], umap_coords['UMAP2'],
             c=[class_colors[c] for c in umap_coords['class']],
             s=0.6, alpha=0.15, rasterized=True           
         )
         # Overlay ROI centroids
         for _, row in roi_umap.iterrows():
-            ax.scatter(row['UMAP2'], row['UMAP3'],
+            ax.scatter(row['UMAP1'], row['UMAP2'],
                 color=class_colors[row['class']],
                 s=100, edgecolors='black', linewidths=0.5, zorder=5)
-            ax.text(row['UMAP2'], row['UMAP3'], row['label'],
+            ax.text(row['UMAP1'], row['UMAP2'], row['label'],
                     fontsize=9, fontweight='bold', ha='left', va='bottom', zorder=6)
             
         # # Overlay principal curve
@@ -777,7 +785,7 @@ class SpatialOmicsToolkit:
 
 
         # Step 6: Plot
-        class_colors = {'Normal': 'green', 'DCIS':'dodgerblue', 'IBC':'orange'}
+        class_colors = self.roi_class_colors
         pos = {i: (coords[i, 0], coords[i, 1]) for i in range(n)}
         labels = {i: roi_names[i].removeprefix('ROI_') for i in range(n)}
         node_colors = [class_colors.get(G.nodes[i]['cls'], 'black') for i in G.nodes]
@@ -834,7 +842,7 @@ class SpatialOmicsToolkit:
         roi_names = self.roi_stats['roi'].values
         n = len(roi_names)
 
-        class_colors = {'Normal':'green', 'DCIS':'dodgerblue', 'IBC':'orange'}
+        class_colors = self.roi_class_colors
         node_colors = [class_colors.get(G.nodes[i]['cls'], 'black') for i in G.nodes]
         labels = {i: roi_names[i].removeprefix('ROI_') for i in range(n)}
 
@@ -848,7 +856,7 @@ class SpatialOmicsToolkit:
 
         for i in range(n):
             ax.scatter(umap_coords[i, 0], umap_coords[i, 1],
-                    color=node_colors[i], s=300,
+                    color=node_colors[i], s=100,
                     edgecolors='black', linewidths=0.5, zorder=5)
             ax.text(umap_coords[i, 0], umap_coords[i, 1], labels[i],
                     fontsize=8, fontweight='bold', ha='left', va='bottom', zorder=6)
@@ -876,9 +884,99 @@ class SpatialOmicsToolkit:
         plt.close()
         print('MST UMAP projection complete. Saved to results/mst_umap_projection.png')
     
-    # def project_mst_onto_diffmap(self):
+    
+    def run_pseudotime_slingshot(self):
+        '''
+        Runs Slingshot pseudotime on ROI-level centroids in UMAP space.
+        Each ROI is treated as a cluster--i.e. it's mean UMAP/spatial coordinate is the cluster centroid passed to Slingshot.
+        
+        '''
+        from pyslingshot import Slingshot
+        import anndata as ad
+
+        print('Running Slingshot pseudotime on ROI centroids...')
+        
+        # Step 4: Root at Normal ROI 
+        coords = self.roi_stats[self.good_peptides].values
+        normal_mask = self.roi_stats['class'] == 'Normal'
+        normal_indices = self.roi_stats[normal_mask].index.tolist()
+        normal_coords = coords[normal_mask]
+        normal_centroid = normal_coords.mean(axis=0)
+        dists_to_centroid = np.linalg.norm(normal_coords - normal_centroid, axis=1)
+        local_root = np.argmin(dists_to_centroid)
+        root_node = normal_indices[local_root]
+
+        # ── 2. Attach ROI cluster labels to existing adata ──────────────────────
+        # Map each pixel to its integer ROI cluster index (0 … n_rois-1)
+        roi_names  = self.roi_stats['roi'].values          # ordered list of ROIs
+        roi_to_idx = {roi: i for i, roi in enumerate(roi_names)}
+        self.adata.obs['roi_cluster'] = (
+            self.adata.obs['sample'].map(roi_to_idx).astype(int)
+        )
+
+        slingshot= Slingshot(self.adata, celltype_key='roi_cluster', obsm_key='X_umap', start_node=root_node, is_debugging='verbose')
+        slingshot.fit(num_epochs=1)
 
 
+    def run_pseudotime_phate(self):
+        import phate
+        print('Running PHATE Pseudotime...')
+        plt.rcParams['font.serif'] = ['Arial']
+        phate_operator = phate.PHATE(knn=10, t=40, verbose=True)
+        self.adata.obsm['X_phate'] = phate_operator.fit_transform(self.adata.X)
+        sc.pl.embedding(self.adata, basis='phate', color='class', title='PHATE Pseudotime', save='.png')
+
+        # Overlay ROI centroids onto phate plot
+                # Build dataframe of PHATE coords
+        phate_coords = pd.DataFrame(
+            self.adata.obsm['X_phate'],
+            columns=['PHATE1', 'PHATE2'],
+            index=self.adata.obs.index
+        )
+        phate_coords['sample'] = self.adata.obs['sample'].values
+        phate_coords['class'] = self.adata.obs['class'].values
+
+        # Compute ROI centroids
+        roi_phate = phate_coords.groupby('sample')[['PHATE1', 'PHATE2']].mean().reset_index()
+        roi_phate['class'] = roi_phate['sample'].map(self.roi_labels)
+        roi_phate['label'] = roi_phate['sample'].str.removeprefix('ROI_')
+
+        class_colors = self.roi_class_colors
+
+        # Plot
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        # Plot pixels
+        ax.scatter(
+            phate_coords['PHATE1'], phate_coords['PHATE2'],
+            c=[class_colors[c] for c in phate_coords['class']],
+            s=0.6, alpha=0.15, rasterized=True
+        )
+
+        # Overlay centroids
+        for _, row in roi_phate.iterrows():
+            ax.scatter(
+                row['PHATE1'], row['PHATE2'],
+                color=class_colors[row['class']],
+                s=100, edgecolors='black', linewidths=0.5, zorder=5
+            )
+            ax.text(
+                row['PHATE1'], row['PHATE2'], row['label'],
+                fontsize=9, fontweight='bold',
+                ha='left', va='bottom', zorder=6
+            )
+
+        ax.set_title('PHATE with ROI Centroids')
+        ax.set_xlabel('PHATE1')
+        ax.set_ylabel('PHATE2')
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/phate_roi_centroids.png'), dpi=150)
+        plt.close()
+
+        print('PHATE with ROI centroids generated successfully.')
 
 ##### Entire pipeline ##### 
     def allAnalysis(self):
@@ -887,7 +985,7 @@ class SpatialOmicsToolkit:
         try : 
             self.check_sheet_format()
             self.filter_rois()
-            self.get_roi_map()
+            # self.get_roi_map()
             self.peptide_sparsity_filter()
             self.normalize_intensities()
             self.diff_expression_test()
@@ -898,13 +996,11 @@ class SpatialOmicsToolkit:
             # self.get_random_forest_ranking()
             self.create_anndata_object()
             self.run_pixel_dim_reduction()
-            # self.compute_mst()
-            #self.run_pseudotime_slingshot()
-            #self.run_diffusion_pseudotime_w_curve()
-            #self.run_dpt_no_remapping()
-            #self.run_phate()
             self.get_roi_level_mst()
             self.project_mst_onto_umap()
+            self.run_pseudotime_phate()
+            #self.run_pseudotime_slingshot()
+            #self.output_excel.to_excel(os.path.join(os.path.dirname(self.data_path), 'results/pipeline_stats.xlsx'))
         except Exception as e:
             import traceback
             print('Pipeline broke before finishing.')
