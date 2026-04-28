@@ -208,9 +208,6 @@ class SpatialOmicsToolkit:
         for region in self.roi_labels:
             data = self.data[region]
             cols = [p for p in self.good_peptides if p in data.columns]
-            # data[cols] = data[cols].replace(0,np.nan)
-            # data[cols] = np.log(data[cols])
-            # data[cols] = data[cols].replace(np.nan, 0)
             data[cols] = np.log1p(data[cols])
         print('Normalization complete.')
 
@@ -287,7 +284,7 @@ class SpatialOmicsToolkit:
             )
 
             ax.set_title(peptide)
-            ax.set_ylabel('ln(Median Intensity)')
+            ax.set_ylabel('Median Intensity, normalized')
             ax.set_xlabel('')
             ax.legend_ = None
             fig.tight_layout()
@@ -350,7 +347,8 @@ class SpatialOmicsToolkit:
             plt.rcParams['font.serif'] = ['Arial']
             plt.scatter(self.roi_stats['x'], self.roi_stats['y'], 
                         c=scale(self.roi_stats[peptide]), cmap='jet', s=200)
-            cb = plt.colorbar()
+            cbar = plt.colorbar()
+            cbar.ax.tick_params(labelsize=16)
             plt.xlabel(None)
             plt.xticks([])
             plt.ylabel(None)
@@ -358,7 +356,7 @@ class SpatialOmicsToolkit:
             plt.title(peptide, font='Arial', fontsize=14)
             plt.tight_layout()
             plt.savefig(os.path.join(os.path.dirname(self.data_path), f'results/heatmap_{peptide}.png'))
-            cb.remove()
+            cbar.remove()
             plt.close()
             
         print('Spatial heatmap generation successful.')  
@@ -435,7 +433,7 @@ class SpatialOmicsToolkit:
 
 
         print('Plotting...')
-        fig, ax = plt.subplots(figsize=(8, max(4, len(self.good_peptides) * 0.5 + 1)))
+        fig, ax = plt.subplots(figsize=(8, max(4, len(self.good_peptides) * 0.3 + 1)))
         plt.rcParams['font.serif'] = ['Arial']
         variable_importances.plot.barh(
             ax=ax,
@@ -448,6 +446,7 @@ class SpatialOmicsToolkit:
         ax.set_xlabel('Feature importance')
         ax.set_ylabel('Peptide m/z')
         plt.tight_layout()
+        plt.show()
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/barplot.png'))
         plt.close()
 
@@ -529,7 +528,7 @@ class SpatialOmicsToolkit:
         sc.tl.umap(self.adata, min_dist=0.75, n_components=3)
         
         print('Generating PCA and UMAP figures...')
-        sc.pl.pca(self.adata, color='class', 
+        sc.pl.pca(self.adata, color='class',
                   show=False, save='.png')
         print('PCA plot generated successfully.')
         sc.pl.umap(self.adata, color='class',
@@ -596,140 +595,38 @@ class SpatialOmicsToolkit:
         plt.close()
         print('UMAP with ROI centroids generation successful.')
 
+    def get_3d_pca(self):
+        import plotly.graph_objects as go 
 
-
-    
-    def run_diffusion_pseudotime(self):
-        print('Running diffusion pseudotime...')
-        # Identify Normal root
-        print('Identifying normal root...')
-        normal_idx = self.adata.obs[self.adata.obs['class']=='Normal'].index[0]
-        self.adata.uns['iroot'] = self.adata.obs_names.get_loc(normal_idx)
-
-        # Calculate then store diffusion pseudotime
-        print('Calculating pseudotime...')
-        sc.pp.neighbors(self.adata, n_pcs=10) 
-        sc.tl.diffmap(self.adata)
-        sc.tl.dpt(self.adata)
-
-        # UMAP + DPT 
-        X = self.adata.obsm['X_umap']
-        pseudotime = 1- (self.adata.obs['dpt_pseudotime'].values)
-        
-        fig, ax = plt.subplots(figsize=(10,5))
-        plot = plt.scatter(X[:,0], X[:,1], 
-                         c=pseudotime, cmap='magma', s=4, alpha=0.4, rasterized=True
-                         )
-        plt.colorbar(plot, ax=ax, shrink=0.8)
-        ax.set_title('Diffusion Pseudotime')
-        ax.set_xlabel('UMAP 1')
-        ax.set_ylabel('UMAP 2')
-        ax.set_xticks([])
-        ax.set_yticks([])
-
-        plt.tight_layout()
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/dpt_pseudotime.png'))
-        plt.close()
-        print('Diffusion pseudotime reconstruction successful!')  
-
-
-        # Project curve onto UMAP space
-        # For each point on pc (in diff space), find nearest neighbor, then look up that neighbor's UMAP coordinate
-        neighbors = NearestNeighbors(n_neighbors=1).fit(dc_coords)
-        _, indices = neighbors.kneighbors(pc.points)
-        curve_umap = self.adata.obsm['X_umap'][indices.flatten()]
-        
-
-        # Plot UMAP w DPT colors and DPT principal curve overlaid 
-        X = self.adata.obsm['X_umap']
-        dpt_pseudotime = self.adata.obs['dpt_pseudotime'].values
-        
-        fig, ax = plt.subplots(figsize=(8,5))
-        plot = plt.scatter(X[:,0], X[:,1], 
-                         c=dpt_pseudotime, cmap='jet', s=0.6, alpha=0.4, rasterized=True
-                         )
-        plt.colorbar(plot, ax=ax, shrink=0.8, alpha=0.4)
-        ax.set_title('Diffusion Pseudotime')
-        ax.set_xlabel('UMAP 1')
-        ax.set_ylabel('UMAP 2')
-        ax.set_xticks([])
-        ax.set_yticks([])
-
-        ax.plot(
-            curve_umap[:, 0],
-            curve_umap[:, 1],
-            color='black', linewidth=2, zorder=4
+        pca_coords = pd.DataFrame(
+            self.adata.obsm['X_pca'][:, :3],
+            columns=['PC1', 'PC2', 'PC3'],
+            index=self.adata.obs.index
         )
 
-        plt.tight_layout()
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/dpt_pseudotime.png'))
-        plt.close()
-        print('Diffusion pseudotime reconstruction successful!')
+        pca_coords['class'] = self.adata.obs['class'].values
+        pca_coords['sample'] = self.adata.obs['sample'].values
 
+        classes= pca_coords['class'].unique()
 
-    def run_dpt_no_remapping(self):
-        print('Running diffusion pseudotime...')
-        sc.settings.verbosity = 3
+        fig = go.Figure()
+
+        # Plot pixels per class
+        for cls in classes:
+            mask = pca_coords['class'] == cls
+            subset = pca_coords[mask]
+            fig.add_trace(go.Scatter3d(
+                x=subset['PC1'],
+                y=subset['PC2'],
+                z=subset['PC3'],
+                mode='markers',
+                marker=dict(size=2,color=self.roi_class_colors[cls], opacity=0.15)
+            ))
         
-        print('Identifying normal root...')
-        from sklearn.neighbors import NearestNeighbors
-        print('Identifying normal root...')
-        normal_mask = self.adata.obs['class'] == 'Normal'
-        normal_coords = self.adata.obsm['X_pca'][normal_mask]
-        normal_centroid = normal_coords.mean(axis=0, keepdims=True)
-        # Find the Normal pixel closest to the centroid
-        nbrs = NearestNeighbors(n_neighbors=1).fit(normal_coords)
-        _, local_idx = nbrs.kneighbors(normal_centroid)
-        # Map back to global adata index
-        normal_global_indices = np.where(normal_mask)[0]
-        self.adata.uns['iroot'] = normal_global_indices[local_idx[0][0]]
+        # Save interactive html
+        fig.write_html(os.path.join(os.path.dirname(self.data_path), 'results/pca_3d.html')) 
 
-        # Calculate then store dpt
-        print('Calculating pseudotime...')
-        sc.pp.neighbors(self.adata, n_pcs=10) 
-        sc.tl.diffmap(self.adata)
-        sc.tl.dpt(self.adata)
-
-        # Diffusion Components Space + DPT
-        X = self.adata.obsm['X_diffmap']
-        classes = self.adata.obs['class']
-        pseudotime = 1 - (self.adata.obs['dpt_pseudotime'].values)
-
-        # Plot 1: colored by pseudotime
-        fig, ax = plt.subplots(figsize=(8,5))
-        plot = ax.scatter(X[:, 1], X[:, 2],
-                        c=pseudotime, cmap='jet', s=4, alpha=0.4, rasterized=True)
-        plt.colorbar(plot, ax=ax, shrink=0.8)
-        ax.set_title('Diffusion Map — Pseudotime')
-        ax.set_xlabel('DC 1')
-        ax.set_ylabel('DC 2')
-        ax.set_xticks([])
-        ax.set_yticks([])
-        plt.tight_layout()
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/dpt_pseudotime.png'))
-        plt.close()
-        print('Diffusion pseudotime reconstruction successful!')
-
-        # Plot 2: colored by class
-        dc1 = X[:, 1]
-        dc2 = X[:, 2]
-        q_low, q_high = np.percentile(dc1, [1, 99])
-        mask = (dc1 >= q_low) & (dc1 <= q_high)
-        fig, ax = plt.subplots(figsize=(8, 5))
-        for cls in classes.unique():
-            cls_mask = (classes == cls) & mask 
-            ax.scatter(X[cls_mask, 1], X[cls_mask, 2],
-                    s=0.6, alpha=0.4, label=cls, rasterized=True)
-        ax.legend(markerscale=5)
-        ax.set_title('Diffusion Map — Class')
-        ax.set_xlabel('DC 1')
-        ax.set_ylabel('DC 2')
-        ax.set_xticks([])
-        ax.set_yticks([])
-        plt.tight_layout()
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/dpt_pseudotime_class.png'))
-        plt.close()
-        print('Diffusion pseudotime reconstruction successful!')
+    # def get_3d_umap(self):
 
 
     def get_roi_level_mst(self):
@@ -922,7 +819,7 @@ class SpatialOmicsToolkit:
         import phate
         print('Running PHATE Pseudotime...')
         plt.rcParams['font.serif'] = ['Arial']
-        phate_operator = phate.PHATE(knn=10, t=40, verbose=True)
+        phate_operator = phate.PHATE(knn=10, t=45, verbose=True)
         self.adata.obsm['X_phate'] = phate_operator.fit_transform(self.adata.X)
         sc.pl.embedding(self.adata, basis='phate', color='class', title='PHATE Pseudotime', save='.png')
 
@@ -978,6 +875,8 @@ class SpatialOmicsToolkit:
 
         print('PHATE with ROI centroids generated successfully.')
 
+
+
 ##### Entire pipeline ##### 
     def allAnalysis(self):
         start = time.time()
@@ -985,22 +884,23 @@ class SpatialOmicsToolkit:
         try : 
             self.check_sheet_format()
             self.filter_rois()
-            # self.get_roi_map()
+            self.get_roi_map()
             self.peptide_sparsity_filter()
             self.normalize_intensities()
             self.diff_expression_test()
-            # self.generate_boxplots()
+            self.generate_boxplots()
             self.get_roi_stats()
-            # self.generate_spatial_heatmap()
-            # self.make_hierarchical_clusters()
-            # self.get_random_forest_ranking()
-            self.create_anndata_object()
-            self.run_pixel_dim_reduction()
-            self.get_roi_level_mst()
-            self.project_mst_onto_umap()
-            self.run_pseudotime_phate()
-            #self.run_pseudotime_slingshot()
-            #self.output_excel.to_excel(os.path.join(os.path.dirname(self.data_path), 'results/pipeline_stats.xlsx'))
+            self.generate_spatial_heatmap()
+            # # self.make_hierarchical_clusters()
+            self.get_random_forest_ranking()
+            # self.create_anndata_object()
+            # self.run_pixel_dim_reduction()
+            # self.get_roi_level_mst()
+            # self.project_mst_onto_umap()
+            # #self.run_pseudotime_phate()
+            # # self.get_3d_pca()
+            # #self.run_pseudotime_slingshot()
+            # #self.output_excel.to_excel(os.path.join(os.path.dirname(self.data_path), 'results/pipeline_stats.xlsx'))
         except Exception as e:
             import traceback
             print('Pipeline broke before finishing.')
