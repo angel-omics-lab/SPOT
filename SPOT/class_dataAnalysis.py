@@ -433,7 +433,7 @@ class SpatialOmicsToolkit:
 
 
         print('Plotting...')
-        fig, ax = plt.subplots(figsize=(8, max(4, len(self.good_peptides) * 0.3 + 1)))
+        fig, ax = plt.subplots(figsize=(8, max(4, len(self.good_peptides) * 0.2 + 1)))
         plt.rcParams['font.serif'] = ['Arial']
         variable_importances.plot.barh(
             ax=ax,
@@ -446,9 +446,115 @@ class SpatialOmicsToolkit:
         ax.set_xlabel('Feature importance')
         ax.set_ylabel('Peptide m/z')
         plt.tight_layout()
-        plt.show()
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/barplot.png'))
         plt.close()
+
+        print('Generating cross-validated predictions for ROC stats...')
+        from sklearn.preprocessing import label_binarize
+        from sklearn.metrics import roc_curve, auc, confusion_matrix
+        from sklearn.model_selection import StratifiedKFold, cross_val_predict
+
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        y_score_cv = cross_val_predict(
+            RandomForestClassifier(n_estimators=1000, random_state=42, bootstrap=True),
+            X, y, cv=cv, method='predict_proba'
+        )
+
+        classes = model.classes_
+        y_bin = label_binarize(y, classes=classes)
+
+        fig, ax = plt.subplots(figsize=(7, 6))
+
+        if len(classes) == 2:
+            # --- Binary case ---
+            y_true_bin = y_bin[:, 0]
+            y_prob     = y_score_cv[:, 1]
+
+            fpr, tpr, thresholds = roc_curve(y_true_bin, y_prob)
+            roc_auc = auc(fpr, tpr)
+
+            # --- Bootstrap 95% CI for AUC ---
+            n_bootstraps = 1000
+            rng = np.random.RandomState(42)
+            boot_aucs = []
+            for _ in range(n_bootstraps):
+                idx = rng.randint(0, len(y_true_bin), len(y_true_bin))
+                if len(np.unique(y_true_bin[idx])) < 2:
+                    continue  # skip if bootstrap sample has only one class
+                boot_aucs.append(auc(*roc_curve(y_true_bin[idx], y_prob[idx])[:2]))
+            ci_lower, ci_upper = np.percentile(boot_aucs, [2.5, 97.5])
+
+            # --- DeLong p-value (H0: AUC = 0.5) ---
+            # Uses the Wilcoxon rank-sum statistic, equivalent to DeLong for binary case
+            pos_scores = y_prob[y_true_bin == 1]
+            neg_scores = y_prob[y_true_bin == 0]
+            _, p_value = stats.mannwhitneyu(pos_scores, neg_scores, alternative='greater')
+
+            # --- Optimal threshold via Youden's index ---
+            youden_idx  = np.argmax(tpr - fpr)
+            best_thresh = thresholds[youden_idx]
+            y_pred_opt  = (y_prob >= best_thresh).astype(int)
+
+            # --- Confusion matrix at optimal threshold ---
+            tn, fp, fn, tp = confusion_matrix(y_true_bin, y_pred_opt).ravel()
+            sensitivity = tp / (tp + fn) if (tp + fn) > 0 else np.nan
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else np.nan
+
+            # PPV & NPV with Wilson 95% CI
+            def wilson_ci(k, n, z=1.96):
+                if n == 0:
+                    return np.nan, np.nan, np.nan
+                p_hat = k / n
+                denom = 1 + z**2 / n
+                centre = (p_hat + z**2 / (2 * n)) / denom
+                margin = (z * np.sqrt(p_hat * (1 - p_hat) / n + z**2 / (4 * n**2))) / denom
+                return p_hat, max(0, centre - margin), min(1, centre + margin)
+
+            ppv, ppv_lo, ppv_hi = wilson_ci(tp, tp + fp)
+            npv, npv_lo, npv_hi = wilson_ci(tn, tn + fn)
+
+            # --- Prevalence in dataset ---
+            prevalence = y_true_bin.mean()
+
+            # --- Print summary ---
+            print(f'\n===== ROC Stats Summary =====')
+            print(f'AUC:          {roc_auc:.3f} (95% CI: {ci_lower:.3f}–{ci_upper:.3f})')
+            print(f'p-value:      {p_value:.4g}  (H0: AUC = 0.5)')
+            print(f'Threshold:    {best_thresh:.3f}  (Youden\'s index)')
+            print(f'Sensitivity:  {sensitivity:.3f}')
+            print(f'Specificity:  {specificity:.3f}')
+            print(f'PPV:          {ppv:.3f} (95% CI: {ppv_lo:.3f}–{ppv_hi:.3f})')
+            print(f'NPV:          {npv:.3f} (95% CI: {npv_lo:.3f}–{npv_hi:.3f})')
+            print(f'Prevalence:   {prevalence:.3f}  (in this dataset)')
+            print(f'TP={tp}  FP={fp}  TN={tn}  FN={fn}')
+            print(f'=============================\n')
+
+
+            # --- Plot with annotations ---
+            ax.plot(fpr, tpr, color='mediumorchid', lw=2,
+                    label=f'AUC = {roc_auc:.2f} (95% CI: {ci_lower:.2f}–{ci_upper:.2f})\np = {p_value:.3g}')
+
+        else:
+            # --- Multiclass: one-vs-rest, no PPV/NPV (ambiguous for multiclass) ---
+            colors = plt.cm.tab10.colors
+            for i, cls in enumerate(classes):
+                fpr, tpr, _ = roc_curve(y_bin[:, i], y_score_cv[:, i])
+                roc_auc = auc(fpr, tpr)
+                ax.plot(fpr, tpr, color=colors[i % len(colors)], lw=2,
+                        label=f'{cls}  (AUC = {roc_auc:.2f})')
+
+        ax.plot([0, 1], [0, 1], 'k--', lw=1, label='Random classifier')
+        ax.set_xlim([-0.02, 1.02])
+        ax.set_ylim([-0.02, 1.05])
+        ax.set_xlabel('False Positive Rate')
+        ax.set_ylabel('True Positive Rate')
+        ax.set_title(f'AUC-ROC Curve — Random Forest\nModel accuracy (OOB): {oob_score_pct}%')
+        ax.legend(loc='lower right', fontsize=8)
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/roc_curve.png'))
+        plt.close()
+        print('Done. ROC curve saved.')
+
 
     def create_anndata_object(self):
         '''
@@ -531,7 +637,7 @@ class SpatialOmicsToolkit:
         sc.pl.pca(self.adata, color='class',
                   show=False, save='.png')
         print('PCA plot generated successfully.')
-        sc.pl.umap(self.adata, color='class',
+        sc.pl.umap(self.adata, color='class', size=0.6,
                   show=False, save='.png')
         print('UMAP plot generated successfully.')
         
@@ -575,8 +681,8 @@ class SpatialOmicsToolkit:
             ax.scatter(row['UMAP1'], row['UMAP2'],
                 color=class_colors[row['class']],
                 s=100, edgecolors='black', linewidths=0.5, zorder=5)
-            ax.text(row['UMAP1'], row['UMAP2'], row['label'],
-                    fontsize=9, fontweight='bold', ha='left', va='bottom', zorder=6)
+            # ax.text(row['UMAP1'], row['UMAP2'], row['label'],
+            #         fontsize=9, fontweight='bold', ha='left', va='bottom', zorder=6)
             
         # # Overlay principal curve
         # ax.plot(
@@ -755,8 +861,8 @@ class SpatialOmicsToolkit:
             ax.scatter(umap_coords[i, 0], umap_coords[i, 1],
                     color=node_colors[i], s=100,
                     edgecolors='black', linewidths=0.5, zorder=5)
-            ax.text(umap_coords[i, 0], umap_coords[i, 1], labels[i],
-                    fontsize=8, fontweight='bold', ha='left', va='bottom', zorder=6)
+            # ax.text(umap_coords[i, 0], umap_coords[i, 1], labels[i],
+            #         fontsize=8, fontweight='bold', ha='left', va='bottom', zorder=6)
             
         ax.scatter(self.adata.obsm['X_umap'][:,0], self.adata.obsm['X_umap'][:,1], 
                    c=[class_colors[c] for c in self.adata.obs['class']], 
@@ -891,16 +997,15 @@ class SpatialOmicsToolkit:
             self.generate_boxplots()
             self.get_roi_stats()
             self.generate_spatial_heatmap()
-            # # self.make_hierarchical_clusters()
+            self.make_hierarchical_clusters()
             self.get_random_forest_ranking()
-            # self.create_anndata_object()
-            # self.run_pixel_dim_reduction()
-            # self.get_roi_level_mst()
-            # self.project_mst_onto_umap()
-            # #self.run_pseudotime_phate()
-            # # self.get_3d_pca()
-            # #self.run_pseudotime_slingshot()
-            # #self.output_excel.to_excel(os.path.join(os.path.dirname(self.data_path), 'results/pipeline_stats.xlsx'))
+            self.create_anndata_object()
+            self.run_pixel_dim_reduction()
+            self.get_roi_level_mst()
+            self.project_mst_onto_umap()
+            # self.run_pseudotime_phate()
+            # self.get_3d_pca()
+            #self.output_excel.to_excel(os.path.join(os.path.dirname(self.data_path), 'results/pipeline_stats.xlsx'))
         except Exception as e:
             import traceback
             print('Pipeline broke before finishing.')
