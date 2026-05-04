@@ -732,7 +732,17 @@ class SpatialOmicsToolkit:
         # Save interactive html
         fig.write_html(os.path.join(os.path.dirname(self.data_path), 'results/pca_3d.html')) 
 
-    # def get_3d_umap(self):
+    def get_3d_umap(self):
+        import plotly.graph_objects as go
+        
+        umap_coords = pd.DataFrame(
+            self.adata.obsm['X_umap'][:, :3],
+            columns=['UMAP1', 'UMAP2', 'UMAP3'],
+            index=self.adata.obs.index
+        )
+
+        umap_coords['class'] = self.adata.obs['class'].values
+        umap_coords['sample'] = self.adata.obs['sample'].values    
 
 
     def get_roi_level_mst(self):
