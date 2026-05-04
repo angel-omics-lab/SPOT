@@ -634,7 +634,7 @@ class SpatialOmicsToolkit:
         sc.tl.umap(self.adata, min_dist=0.75, n_components=3)
         
         print('Generating PCA and UMAP figures...')
-        sc.pl.pca(self.adata, color='class',
+        sc.pl.pca(self.adata, annotate_var_explained=True, color='class',
                   show=False, save='.png')
         print('PCA plot generated successfully.')
         sc.pl.umap(self.adata, color='class', size=0.6,
