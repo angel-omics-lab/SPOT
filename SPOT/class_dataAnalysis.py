@@ -21,6 +21,7 @@ from scipy.sparse.csgraph import minimum_spanning_tree
 import networkx as nx 
 import time 
 import json
+from pcurvepy2 import PrincipalCurve
 
 
 class SpatialOmicsToolkit:
@@ -38,8 +39,16 @@ class SpatialOmicsToolkit:
         try: 
             file = json.load(open(json_path))
             self.roi_labels = {}
+            self.roi_classes = []
+            self.roi_class_colors = {}
             for entry in file['roi_labels']:
                 self.roi_labels.update(entry)
+            for entry in file['classes']:
+                self.roi_class_colors.update(entry)
+            self.roi_classes = list(self.roi_class_colors.keys())
+            print('ROI classes: ', self.roi_classes)
+            print('ROI class colors: ', self.roi_class_colors)
+
         except Exception as e:
             print('Issue loading and/or reading json file, check file path.')
             print(e)
@@ -99,19 +108,11 @@ class SpatialOmicsToolkit:
             data = self.data[region]
             intensities = data.iloc[:, 4:]      # Skip first 4 columns 
             print(f'Processing {region}...')
-            intensities = intensities.fillna(0)        # Change all NaN values to 0 
-            # zeros = (intensities==0).astype(int).sum().sum()      # Number of 0 intensities
-            # total = intensities.shape[0]*data.shape[1]     # Total number of intensities
-            
-            # if zeros > (0.25*total):       # Remove ROI from list if >25% of peptides are 0 
-            #     to_remove.append(region)
-            #     print(f'Removed {region} with {label} label from list: >25% zero intensities.')
-            # else: 
-            #     print(f'{region} accepted')
+            # intensities = intensities.fillna(0)        # Change all NaN values to 0 
             NA_prop = (intensities == 0).mean()
             if (NA_prop > 0.25).mean() > 0.25:
                 to_remove.append(region)
-                print(f'Removed {region} with {label} label from list: >25% zero intensities.')
+                #print(f'Removed {region} with {label} label from list: >25% zero intensities.')
             else: 
                 print(f'{region} accepted')
         for region in to_remove:
@@ -143,7 +144,7 @@ class SpatialOmicsToolkit:
                 
             # Generate colored scatter plot
         sns.scatterplot(data=roi_stats, x='x', y='y', 
-                        hue='class', palette={'DCIS':'dodgerblue', 'IBC':'orange', 'Normal':'green'},      
+                        hue='class', palette=self.roi_class_colors,      
                         s=250
         )
         for x, y, roi in zip(roi_stats['x'], roi_stats['y'], roi_stats['roi']):
@@ -207,9 +208,6 @@ class SpatialOmicsToolkit:
         for region in self.roi_labels:
             data = self.data[region]
             cols = [p for p in self.good_peptides if p in data.columns]
-            # data[cols] = data[cols].replace(0,np.nan)
-            # data[cols] = np.log(data[cols])
-            # data[cols] = data[cols].replace(np.nan, 0)
             data[cols] = np.log1p(data[cols])
         print('Normalization complete.')
 
@@ -225,7 +223,7 @@ class SpatialOmicsToolkit:
         results_list = []
         # Identify significant peptide 
         print('Identifying differentially expressed peptides...')
-        for peptide in self.good_peptides:
+        for peptide in self.good_peptides:                                                                            # NOTE 
             group1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']     # Mean intensities of peptide in DCIS (class 1) rois        
             group2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'IBC']      # Mean Intensities of peptide in IBC (class 2) rois
             # Run KW
@@ -242,9 +240,11 @@ class SpatialOmicsToolkit:
         # Save peptides whose q value is <= 0.05
         self.good_peptides = results_df[results_df['qvalue_bh'] <= 0.05]['peptide'].tolist()
         if not self.good_peptides: 
-            raise ValueError('No peptides were identified to be significant with 95 percent confidence. Pipeline stopped.') 
+            raise ValueError('No peptides were identified to be significant with 95 percent confidence. Pipeline stopped.')
         print('Differential analysis complete. Significant peptides: ', self.good_peptides)
         print(f'{len(reject)} peptides removed: non-significant')
+        print('Saving filtered peptide list to data frame...')
+        self.output_excel = results_df.set_index('peptide')
         
     
 
@@ -254,14 +254,17 @@ class SpatialOmicsToolkit:
         In this case, the two classes we choose are IBC and DCIS, but this can be changed. 
         '''
         print('Generating box plots for significant peptides...')
-
         for peptide in self.good_peptides:
             fig, ax = plt.subplots(figsize=(2.5, 4))  # create axes explicitly
             plt.rcParams['font.serif'] = ['Arial']
-            plot_data = (
-                [{'Intensity': val, 'Class':'DCIS'} for val in [self.data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'DCIS' ]]
+
+            medians_dcis = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']
+            medians_ibc = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'IBC'] 
+
+            plot_data = (                    # NOTE                   # NOTE
+                [{'Intensity': val, 'Class':'DCIS'} for val in medians_dcis]
                 +
-                [{'Intensity': val, 'Class':'IBC'} for val in [self.data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'IBC' ]]
+                [{'Intensity': val, 'Class':'IBC'} for val in medians_ibc]
             )
             plot_df = pd.DataFrame(plot_data)
 
@@ -269,7 +272,7 @@ class SpatialOmicsToolkit:
                 data=plot_df, 
                 x='Class', y='Intensity', 
                 hue='Class', 
-                palette={'DCIS':'dodgerblue', 'IBC':'orange'},
+                palette={'DCIS':'dodgerblue', 'IBC':'orange'},      # NOTE
                 ax=ax
             )
 
@@ -281,7 +284,7 @@ class SpatialOmicsToolkit:
             )
 
             ax.set_title(peptide)
-            ax.set_ylabel('ln(Median Intensity)')
+            ax.set_ylabel('Median Intensity, normalized')
             ax.set_xlabel('')
             ax.legend_ = None
             fig.tight_layout()
@@ -291,6 +294,8 @@ class SpatialOmicsToolkit:
 
         print('Box plots generation successful!')
         sns.reset_orig()
+
+
 
 
     def get_roi_stats(self):
@@ -315,6 +320,16 @@ class SpatialOmicsToolkit:
         self.roi_stats['class'] = self.roi_stats['roi'].map(self.roi_labels)
 
         print('ROI calculations successful!')
+        print('Saving medians to datafram...')                  # NOTE
+        dcis_rows = self.roi_stats[self.roi_stats['class'] == 'DCIS'][self.good_peptides]
+        ibc_rows  = self.roi_stats[self.roi_stats['class'] == 'IBC'][self.good_peptides]
+
+        plot_data_df = pd.DataFrame({
+            'median_dcis_allrois': dcis_rows.median(),      # NOTE
+            'median_ibc_allrois':  ibc_rows.median(),       # NOTE
+        }) 
+
+        self.output_excel = pd.concat([self.output_excel, plot_data_df], axis=1)
 
 
     def generate_spatial_heatmap(self):
@@ -329,9 +344,11 @@ class SpatialOmicsToolkit:
         # Generate heatmaps for each peptide as a scatterplot where color indicates mean intensity
         for peptide in self.good_peptides:
             heatmap = plt.figure()
+            plt.rcParams['font.serif'] = ['Arial']
             plt.scatter(self.roi_stats['x'], self.roi_stats['y'], 
                         c=scale(self.roi_stats[peptide]), cmap='jet', s=200)
-            cb = plt.colorbar()
+            cbar = plt.colorbar()
+            cbar.ax.tick_params(labelsize=16)
             plt.xlabel(None)
             plt.xticks([])
             plt.ylabel(None)
@@ -339,7 +356,7 @@ class SpatialOmicsToolkit:
             plt.title(peptide, font='Arial', fontsize=14)
             plt.tight_layout()
             plt.savefig(os.path.join(os.path.dirname(self.data_path), f'results/heatmap_{peptide}.png'))
-            cb.remove()
+            cbar.remove()
             plt.close()
             
         print('Spatial heatmap generation successful.')  
@@ -364,7 +381,7 @@ class SpatialOmicsToolkit:
  
         # Formatting
         plt.rcParams['axes.prop_cycle'] = plt.cycler(color=['mediumorchid', 'lightcoral', 'lightblue'])
-        color_map = {'DCIS': 'dodgerblue', 'IBC': 'orange', 'Normal': 'green'}
+        color_map = self.roi_class_colors
         leaf_order = dend['ivl']  # ROIs in dendrogram order
         label_colors = [color_map[self.roi_stats.set_index('roi').loc[roi, 'class']] for roi in leaf_order]
         ax = plt.gca()
@@ -372,8 +389,8 @@ class SpatialOmicsToolkit:
             tick.set_color(color)
         plt.yticks([])
         # Create legend
-        class_labels = [plt.Rectangle((0,0),1,1, color=c) for c in ['dodgerblue', 'orange', 'green']]
-        plt.legend(class_labels, ['DCIS', 'IBC', 'Normal'], bbox_to_anchor=(1.05, -0.25), loc= 'lower left')
+        class_labels = [plt.Rectangle((0,0),1,1, color=c) for c in ['dodgerblue', 'orange', 'green']]       # NOTE 
+        plt.legend(class_labels, self.roi_classes, bbox_to_anchor=(1.05, -0.25), loc= 'lower left')
 
         plt.title('ROI clusters based on peptide profile similarity')
         plt.tight_layout()
@@ -416,7 +433,8 @@ class SpatialOmicsToolkit:
 
 
         print('Plotting...')
-        fig, ax = plt.subplots(figsize=(8, max(4, len(self.good_peptides) * 0.5 + 1)))
+        fig, ax = plt.subplots(figsize=(8, max(4, len(self.good_peptides) * 0.2 + 1)))
+        plt.rcParams['font.serif'] = ['Arial']
         variable_importances.plot.barh(
             ax=ax,
             color='mediumorchid',
@@ -427,9 +445,116 @@ class SpatialOmicsToolkit:
         ax.set_title(f'Ranking of peptide importance in random forest classification model\n Model accuracy: {oob_score_pct}%')
         ax.set_xlabel('Feature importance')
         ax.set_ylabel('Peptide m/z')
-        fig.tight_layout()
+        plt.tight_layout()
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/barplot.png'))
         plt.close()
+
+        print('Generating cross-validated predictions for ROC stats...')
+        from sklearn.preprocessing import label_binarize
+        from sklearn.metrics import roc_curve, auc, confusion_matrix
+        from sklearn.model_selection import StratifiedKFold, cross_val_predict
+
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        y_score_cv = cross_val_predict(
+            RandomForestClassifier(n_estimators=1000, random_state=42, bootstrap=True),
+            X, y, cv=cv, method='predict_proba'
+        )
+
+        classes = model.classes_
+        y_bin = label_binarize(y, classes=classes)
+
+        fig, ax = plt.subplots(figsize=(7, 6))
+
+        if len(classes) == 2:
+            # --- Binary case ---
+            y_true_bin = y_bin[:, 0]
+            y_prob     = y_score_cv[:, 1]
+
+            fpr, tpr, thresholds = roc_curve(y_true_bin, y_prob)
+            roc_auc = auc(fpr, tpr)
+
+            # --- Bootstrap 95% CI for AUC ---
+            n_bootstraps = 1000
+            rng = np.random.RandomState(42)
+            boot_aucs = []
+            for _ in range(n_bootstraps):
+                idx = rng.randint(0, len(y_true_bin), len(y_true_bin))
+                if len(np.unique(y_true_bin[idx])) < 2:
+                    continue  # skip if bootstrap sample has only one class
+                boot_aucs.append(auc(*roc_curve(y_true_bin[idx], y_prob[idx])[:2]))
+            ci_lower, ci_upper = np.percentile(boot_aucs, [2.5, 97.5])
+
+            # --- DeLong p-value (H0: AUC = 0.5) ---
+            # Uses the Wilcoxon rank-sum statistic, equivalent to DeLong for binary case
+            pos_scores = y_prob[y_true_bin == 1]
+            neg_scores = y_prob[y_true_bin == 0]
+            _, p_value = stats.mannwhitneyu(pos_scores, neg_scores, alternative='greater')
+
+            # --- Optimal threshold via Youden's index ---
+            youden_idx  = np.argmax(tpr - fpr)
+            best_thresh = thresholds[youden_idx]
+            y_pred_opt  = (y_prob >= best_thresh).astype(int)
+
+            # --- Confusion matrix at optimal threshold ---
+            tn, fp, fn, tp = confusion_matrix(y_true_bin, y_pred_opt).ravel()
+            sensitivity = tp / (tp + fn) if (tp + fn) > 0 else np.nan
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else np.nan
+
+            # PPV & NPV with Wilson 95% CI
+            def wilson_ci(k, n, z=1.96):
+                if n == 0:
+                    return np.nan, np.nan, np.nan
+                p_hat = k / n
+                denom = 1 + z**2 / n
+                centre = (p_hat + z**2 / (2 * n)) / denom
+                margin = (z * np.sqrt(p_hat * (1 - p_hat) / n + z**2 / (4 * n**2))) / denom
+                return p_hat, max(0, centre - margin), min(1, centre + margin)
+
+            ppv, ppv_lo, ppv_hi = wilson_ci(tp, tp + fp)
+            npv, npv_lo, npv_hi = wilson_ci(tn, tn + fn)
+
+            # --- Prevalence in dataset ---
+            prevalence = y_true_bin.mean()
+
+            # --- Print summary ---
+            print(f'\n===== ROC Stats Summary =====')
+            print(f'AUC:          {roc_auc:.3f} (95% CI: {ci_lower:.3f}–{ci_upper:.3f})')
+            print(f'p-value:      {p_value:.4g}  (H0: AUC = 0.5)')
+            print(f'Threshold:    {best_thresh:.3f}  (Youden\'s index)')
+            print(f'Sensitivity:  {sensitivity:.3f}')
+            print(f'Specificity:  {specificity:.3f}')
+            print(f'PPV:          {ppv:.3f} (95% CI: {ppv_lo:.3f}–{ppv_hi:.3f})')
+            print(f'NPV:          {npv:.3f} (95% CI: {npv_lo:.3f}–{npv_hi:.3f})')
+            print(f'Prevalence:   {prevalence:.3f}  (in this dataset)')
+            print(f'TP={tp}  FP={fp}  TN={tn}  FN={fn}')
+            print(f'=============================\n')
+
+
+            # --- Plot with annotations ---
+            ax.plot(fpr, tpr, color='mediumorchid', lw=2,
+                    label=f'AUC = {roc_auc:.2f} (95% CI: {ci_lower:.2f}–{ci_upper:.2f})\np = {p_value:.3g}')
+
+        else:
+            # --- Multiclass: one-vs-rest, no PPV/NPV (ambiguous for multiclass) ---
+            colors = plt.cm.tab10.colors
+            for i, cls in enumerate(classes):
+                fpr, tpr, _ = roc_curve(y_bin[:, i], y_score_cv[:, i])
+                roc_auc = auc(fpr, tpr)
+                ax.plot(fpr, tpr, color=colors[i % len(colors)], lw=2,
+                        label=f'{cls}  (AUC = {roc_auc:.2f})')
+
+        ax.plot([0, 1], [0, 1], 'k--', lw=1, label='Random classifier')
+        ax.set_xlim([-0.02, 1.02])
+        ax.set_ylim([-0.02, 1.05])
+        ax.set_xlabel('False Positive Rate')
+        ax.set_ylabel('True Positive Rate')
+        ax.set_title(f'AUC-ROC Curve — Random Forest\nModel accuracy (OOB): {oob_score_pct}%')
+        ax.legend(loc='lower right', fontsize=8)
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/roc_curve.png'))
+        plt.close()
+        print('Done. ROC curve saved.')
+
 
     def create_anndata_object(self):
         '''
@@ -486,51 +611,62 @@ class SpatialOmicsToolkit:
         '''
         sc.settings.figdir = os.path.join(os.path.dirname(self.data_path), "results")
         # Register class colors so scanpy can use them directly 
-        class_colors = {'Normal':'green', 'DCIS': 'dodgerblue', 'IBC': 'orange'}
+        class_colors = self.roi_class_colors
         self.adata.obs['class'] = pd.Categorical(self.adata.obs['class'])
         self.adata.uns['class_colors'] = [
             class_colors[c] for c in self.adata.obs['class'].cat.categories
         ]
 
-        # #Calculate number of components to retain for PCA with Explained Variance Threshold heuristic
-        # print('Calculating optimal number of PCA components...')
-        # max_comps = min(self.adata.n_obs, self.adata.n_vars) - 1
-        # sc.pp.pca(self.adata, n_comps=max_comps)       # Run pca with max comps
-        # cumsum = np.cumsum(self.adata.uns['pca']['variance_ratio'])
+        #Calculate number of components to retain for PCA with Explained Variance Threshold heuristic
+        print('Calculating optimal number of PCA components...')
+        max_comps = min(self.adata.n_obs, self.adata.n_vars) - 1
+        sc.pp.pca(self.adata, n_comps=max_comps)       # Run pca with max comps
+        cumsum = np.cumsum(self.adata.uns['pca']['variance_ratio'])
         
-        # n_comps = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
-        # print(f'Retaining {n_comps} principal components (explain >= 99% of variance)')
+        n_comps = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
+        print(f'Retaining {n_comps} principal components (explain >= 95% of variance)')
 
         print('Running PCA...') 
-        sc.pp.pca(self.adata, n_comps=3)
+        sc.pp.pca(self.adata, n_comps=20)
         
         print('Running UMAP analysis; this may take a while...')
         sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=3, n_neighbors=50)
-        sc.tl.umap(self.adata, min_dist=0.75, n_components=2)
+        sc.tl.umap(self.adata, min_dist=0.75, n_components=3)
         
         print('Generating PCA and UMAP figures...')
-        sc.pl.pca(self.adata, color='class', 
+        sc.pl.pca(self.adata, color='class',
                   show=False, save='.png')
         print('PCA plot generated successfully.')
-        sc.pl.umap(self.adata, color='class',
+        sc.pl.umap(self.adata, color='class', size=0.6,
                   show=False, save='.png')
         print('UMAP plot generated successfully.')
-            
+        
+        # # Calculate principal curve to be added to UMAP projection 
+        # pc = PrincipalCurve()
+        # pc.fit(self.adata.obsm['X_umap'])
+        # curve_points= pc.points
 
         # Plot ROI centroid UMAP projection 
         print('Generated ROI centroid UMAP projection...')
         umap_coords = pd.DataFrame(
           self.adata.obsm['X_umap'], 
-          columns=['UMAP1', 'UMAP2'],
+          columns=['UMAP1', 'UMAP2', 'UMAP3'],
           index=self.adata.obs.index
         )
         umap_coords['sample'] = self.adata.obs['sample'].values
         umap_coords['class'] = self.adata.obs['class'].values
         
         # Average UMAP coords across all pixes in each roi
-        roi_umap = umap_coords.groupby('sample')[['UMAP1', 'UMAP2']].mean().reset_index()
+        roi_umap = umap_coords.groupby('sample')[['UMAP1', 'UMAP2', 'UMAP3']].mean().reset_index()
         roi_umap['class'] = roi_umap['sample'].map(self.roi_labels)
         roi_umap['label'] = roi_umap['sample'].str.removeprefix('ROI_')
+
+        # Add roi_umap to self.roi_stats to can be accessed by mst proj fcn
+        self.roi_stats = self.roi_stats.merge(
+            roi_umap[['sample','UMAP1', 'UMAP2', 'UMAP3']], 
+            left_on='roi', right_on='sample',
+            how='left'
+        ).drop(columns='sample')
         
         
         fig,ax = plt.subplots(figsize=(8,6))
@@ -538,15 +674,22 @@ class SpatialOmicsToolkit:
         # Plot  pixels
         ax.scatter(umap_coords['UMAP1'], umap_coords['UMAP2'],
             c=[class_colors[c] for c in umap_coords['class']],
-            s=2, alpha=0.15, rasterized=True           
+            s=0.6, alpha=0.15, rasterized=True           
         )
         # Overlay ROI centroids
         for _, row in roi_umap.iterrows():
             ax.scatter(row['UMAP1'], row['UMAP2'],
                 color=class_colors[row['class']],
-                s=180, edgecolors='black', linewidths=0.8, zorder=5)
-            ax.text(row['UMAP1'], row['UMAP2'], row['label'],
-                    fontsize=9, fontweight='bold', ha='left', va='bottom', zorder=6)
+                s=100, edgecolors='black', linewidths=0.5, zorder=5)
+            # ax.text(row['UMAP1'], row['UMAP2'], row['label'],
+            #         fontsize=9, fontweight='bold', ha='left', va='bottom', zorder=6)
+            
+        # # Overlay principal curve
+        # ax.plot(
+        #     curve_points[:, 0], 
+        #     curve_points[:, 1],
+        #     color='black', linewidth=2, zorder=4
+        # )
         
         ax.set_title('UMAP with ROI Centroids')
         ax.set_xlabel('UMAP1')
@@ -558,140 +701,298 @@ class SpatialOmicsToolkit:
         plt.close()
         print('UMAP with ROI centroids generation successful.')
 
-    def run_pseudotime_slingshot(self):
-        '''
-        Runs Slingshot pseudotime reconstruction. Outputs UMAP with Slingshot principal curves and ROI centroids overlaid. 
-        '''
-        from pyslingshot import Slingshot
-        print('Running pseudotime reconstruction. This may take a while...')
-        # Step 1: Clustering
-        # print('Generating Leiden clusters...')
+    def get_3d_pca(self):
+        import plotly.graph_objects as go 
 
-        # # sc.pp.neighbors(self.adata, use_rep='X_pca', n_neighbors=20)     # Overwrite the neighbor graph to be based in PCA space, making leiden clusters more coherent
-        # sc.tl.leiden(self.adata, resolution=0.08)     # resolution up - more clusters V down = fewer clusters, ideally want # clusters to = # disease stages
-        # print(f"Leiden found {self.adata.obs['leiden'].nunique()} clusters")
-
-        # # Step 2: Set root (identify cluster that Normal cells belong to)
-        # print('Identifying root cluster...')
-        # normal_mask = self.adata.obs['class']=='Normal'
-        # normal_clusters = self.adata.obs.loc[normal_mask, 'leiden']
-        # root_cluster = int(normal_clusters.mode().iloc[0])
-
-        self.adata.obs['leiden'] = '0'
-        root_cluster = 0
-
-        # Subsample 
-        max_cells = 10000
-        if self.adata.n_obs > max_cells:
-            print('Subsampling...')
-            sc.pp.subsample(self.adata, n_obs=max_cells, random_state=42)
-
-        #Step 3: Slingshot fitting
-        print('Fitting pseudotime model...')
-        slingshot = Slingshot(
-            self.adata, 
-            celltype_key='leiden', 
-            obsm_key='X_umap', 
-            start_node=root_cluster,
-            is_debugging='verbose'
+        pca_coords = pd.DataFrame(
+            self.adata.obsm['X_pca'][:, :3],
+            columns=['PC1', 'PC2', 'PC3'],
+            index=self.adata.obs.index
         )
-        slingshot.fit(num_epochs=1)
-        self.adata.obs['pseudotime'] = slingshot.unified_pseudotime
-        print('Pseudotime fitting successful. Now proceeding to plotting...')
 
-        # Step 4: Plot
-        fig, axes = plt.subplots(ncols=2, figsize=(12,4))
-        axes[0].set_title('Clusters')
-        axes[1].set_title('Pseudotime')
+        pca_coords['class'] = self.adata.obs['class'].values
+        pca_coords['sample'] = self.adata.obs['sample'].values
 
-        slingshot.plotter.curves(axes[0], slingshot.curves)
-        slingshot.plotter.clusters(axes[0], labels=np.arange(slingshot.num_clusters), s=6, alpha=0.5)
-        slingshot.plotter.clusters(axes[1], color_mode='pseudotime', s=6)
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/pseudotime.png'))
+        classes= pca_coords['class'].unique()
+
+        fig = go.Figure()
+
+        # Plot pixels per class
+        for cls in classes:
+            mask = pca_coords['class'] == cls
+            subset = pca_coords[mask]
+            fig.add_trace(go.Scatter3d(
+                x=subset['PC1'],
+                y=subset['PC2'],
+                z=subset['PC3'],
+                mode='markers',
+                marker=dict(size=2,color=self.roi_class_colors[cls], opacity=0.15)
+            ))
         
-    
-    def run_diffusion_pseudotime(self):
-        print('Running diffusion pseudotime...')
-        # Identify Normal root
-        normal_idx = self.adata.obs[self.adata.obs['class']=='Normal'].index[0]
-        self.adata.uns['iroot'] = self.adata.obs_names.get_loc(normal_idx)
+        # Save interactive html
+        fig.write_html(os.path.join(os.path.dirname(self.data_path), 'results/pca_3d.html')) 
 
-        # Calculate then store diffusion pseudotime 
-        sc.tl.diffmap(self.adata)
-        sc.tl.dpt(self.adata)
-
-        # Plot
-        X = self.adata.obsm['X_umap']
-        pseudotime = 1- (self.adata.obs['dpt_pseudotime'].values)
+    def get_3d_umap(self):
+        import plotly.graph_objects as go
         
-        fig, ax = plt.subplots(figsize=(8,5))
-        plot = plt.scatter(X[:,0], X[:,1], 
-                         c=pseudotime, cmap='magma', s=4, alpha=0.4, rasterized=True
-                         )
-        plt.colorbar(plot, ax=ax, shrink=0.8)
-        ax.set_title('Diffusion Pseudotime')
-        ax.set_xlabel('UMAP 1')
-        ax.set_ylabel('UMAP 2')
+        umap_coords = pd.DataFrame(
+            self.adata.obsm['X_umap'][:, :3],
+            columns=['UMAP1', 'UMAP2', 'UMAP3'],
+            index=self.adata.obs.index
+        )
+
+        umap_coords['class'] = self.adata.obs['class'].values
+        umap_coords['sample'] = self.adata.obs['sample'].values    
+
+
+    def get_roi_level_mst(self):
+        '''
+        Builds a pseudotime MST on ROI spatial centroids. 
+        Nodes = ROIs (from roi_stats), edges weighted by Euclidean distance between centroids
+        Pseudotime is computed as shortest path distance from Normal root in the MST
+
+        Returns:
+            None, but saves mst_pseudotime.png and stores pseusotime in self.roi_stats['mst_pseudotime']
+        '''
+        print('Building ROI-level MST...')
+
+        # Step 1: Build distance matrix on spatial centroids
+        coords = self.roi_stats[self.good_peptides].values
+        dist_matrix = cdist(coords, coords, metric='Euclidean')
+
+        # Step 2: Compute MST
+        mst_sparse = minimum_spanning_tree(dist_matrix)
+        mst_array = mst_sparse.toarray()
+
+        # Step 3: Build Networkx graph from MST
+        G = nx.Graph()
+        roi_names = self.roi_stats['roi'].values
+        for i, name in enumerate(roi_names):
+            G.add_node(i, roi=name, cls=self.roi_stats['class'].iloc[i])
+        
+        n = len(roi_names)
+        for i in range(n):
+            for j in range(n):
+                w = mst_array[i, j]
+                if w > 0: 
+                    G.add_edge(i, j, weight=w)
+
+        # Store
+        self.mst_graph = G
+        self.mst_coords = coords    # median intensities, shape (n,2) 
+        
+        # Step 4: Root at Normal ROI 
+        normal_mask = self.roi_stats['class'] == 'Normal'
+        normal_indices = self.roi_stats[normal_mask].index.tolist()
+        normal_coords = coords[normal_mask]
+        normal_centroid = normal_coords.mean(axis=0)
+        dists_to_centroid = np.linalg.norm(normal_coords - normal_centroid, axis=1)
+        local_root = np.argmin(dists_to_centroid)
+        root_node = normal_indices[local_root]
+
+
+        # Step 5: Pseudotime = shortest path length from root (in MST edge weights)
+        path_lengths = nx.single_source_dijkstra_path_length(G, root_node, weight='weight')
+        max_len = max(path_lengths.values()) or 1       # avoid dividing by zero
+        self.roi_stats['mst_pseudotime'] = [path_lengths.get(i, np.nan) / max_len for i in range(n)]
+
+
+        # Step 6: Plot
+        class_colors = self.roi_class_colors
+        pos = {i: (coords[i, 0], coords[i, 1]) for i in range(n)}
+        labels = {i: roi_names[i].removeprefix('ROI_') for i in range(n)}
+        node_colors = [class_colors.get(G.nodes[i]['cls'], 'black') for i in G.nodes]
+
+        fig,ax = plt.subplots(figsize=(8,6))
+
+        # Draw MST edges manually so we control the axes object
+        for i, j in G.edges():
+            ax.plot([coords[i, 0], coords[j, 0]],
+                    [coords[i, 1], coords[j, 1]],
+                    color='black', linewidth=1, zorder=1)
+
+        # Draw ROI centroid nodes
+        for i in range(n):
+            ax.scatter(coords[i,0], coords[i,1],
+                       color=node_colors[i], s=300, edgecolors='black', linewidths=0.5, zorder=5)
+            ax.text(coords[i,0], coords[i,1], labels[i], 
+                    fontsize=8, fontweight='bold', ha='left', va='bottom', zorder=6)
+
+        # Legend
+        for cls, col in class_colors.items():
+            ax.scatter([], [], color=col, label=cls, s=80)
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+
+        ax.set_title('ROI-level MST')
         ax.set_xticks([])
         ax.set_yticks([])
-
         plt.tight_layout()
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/dpt_pseudotime.png'))
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/mst_pseudotime.png'),
+                    dpi=150, bbox_inches='tight')
         plt.close()
-        print('Diffusion pseudotime reconstruction successful!')
+        print('ROI-level MST pseudotime complete. Saved to results/mst_pseudotime.png')
+
+
+    def project_mst_onto_umap(self):
+        '''
+        Projects the ROI-level MST onto UMAP space. 
+        The MST topology/connectivity is reconstructed identically, but nodes are at their mean UMAP coordinates instead.
+
+        Returns:
+            None, but saves mst_umap_projection.png to results/
+        '''
+        print('Projecting ROI-level MST onto UMAP space...')
+
+        # Check existance of required columns
+        if not hasattr(self, 'mst_graph') or not hasattr(self, 'mst_coords'):
+            raise RuntimeError('MST construction data not found, Run get_roi_level_mst() first.')
+        if 'UMAP1' not in self.roi_stats.columns: 
+            raise ValueError(f'roi_stats is missing columns UMAP1, UMAP2. Make sure run_pixel_dim_reduction() is run first.')
+        
+        # Create plotting assets
+        G = self.mst_graph
+        umap_coords = self.roi_stats[['UMAP1', 'UMAP2']].values
+        roi_names = self.roi_stats['roi'].values
+        n = len(roi_names)
+
+        class_colors = self.roi_class_colors
+        node_colors = [class_colors.get(G.nodes[i]['cls'], 'black') for i in G.nodes]
+        labels = {i: roi_names[i].removeprefix('ROI_') for i in range(n)}
+
+        # Plot
+        fig, ax = plt.subplots(figsize=(8,6))
+
+        for i, j in G.edges():
+            ax.plot([umap_coords[i, 0], umap_coords[j, 0]],
+                    [umap_coords[i, 1], umap_coords[j, 1]],
+                    color='black', linewidth=1, zorder=1)
+
+        for i in range(n):
+            ax.scatter(umap_coords[i, 0], umap_coords[i, 1],
+                    color=node_colors[i], s=100,
+                    edgecolors='black', linewidths=0.5, zorder=5)
+            # ax.text(umap_coords[i, 0], umap_coords[i, 1], labels[i],
+            #         fontsize=8, fontweight='bold', ha='left', va='bottom', zorder=6)
+            
+        ax.scatter(self.adata.obsm['X_umap'][:,0], self.adata.obsm['X_umap'][:,1], 
+                   c=[class_colors[c] for c in self.adata.obs['class']], 
+                   s=0.6, alpha=0.15, rasterized=True
+                )
+            
+        # Legend 
+        for cls, col in class_colors.items():
+            ax.scatter([], [], color=col, label=cls, s=80)
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    
+
+        ax.set_title('ROI-level MST (UMAP Projection)')
+        ax.set_xlabel('UMAP1')
+        ax.set_ylabel('UMAP2')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/mst_umap_projection.png'),
+                    dpi=150, bbox_inches='tight')
+        plt.close()
+        print('MST UMAP projection complete. Saved to results/mst_umap_projection.png')
+    
+    
+    def run_pseudotime_slingshot(self):
+        '''
+        Runs Slingshot pseudotime on ROI-level centroids in UMAP space.
+        Each ROI is treated as a cluster--i.e. it's mean UMAP/spatial coordinate is the cluster centroid passed to Slingshot.
+        
+        '''
+        from pyslingshot import Slingshot
+        import anndata as ad
+
+        print('Running Slingshot pseudotime on ROI centroids...')
+        
+        # Step 4: Root at Normal ROI 
+        coords = self.roi_stats[self.good_peptides].values
+        normal_mask = self.roi_stats['class'] == 'Normal'
+        normal_indices = self.roi_stats[normal_mask].index.tolist()
+        normal_coords = coords[normal_mask]
+        normal_centroid = normal_coords.mean(axis=0)
+        dists_to_centroid = np.linalg.norm(normal_coords - normal_centroid, axis=1)
+        local_root = np.argmin(dists_to_centroid)
+        root_node = normal_indices[local_root]
+
+        # ── 2. Attach ROI cluster labels to existing adata ──────────────────────
+        # Map each pixel to its integer ROI cluster index (0 … n_rois-1)
+        roi_names  = self.roi_stats['roi'].values          # ordered list of ROIs
+        roi_to_idx = {roi: i for i, roi in enumerate(roi_names)}
+        self.adata.obs['roi_cluster'] = (
+            self.adata.obs['sample'].map(roi_to_idx).astype(int)
+        )
+
+        slingshot= Slingshot(self.adata, celltype_key='roi_cluster', obsm_key='X_umap', start_node=root_node, is_debugging='verbose')
+        slingshot.fit(num_epochs=1)
 
 
     def run_pseudotime_phate(self):
         import phate
-        import pcurvepy2 as pcurve
         print('Running PHATE Pseudotime...')
-        phate_operator = phate.PHATE(knn=5, decay=15, n_jobs=-2, verbose=True)
+        plt.rcParams['font.serif'] = ['Arial']
+        phate_operator = phate.PHATE(knn=10, t=45, verbose=True)
         self.adata.obsm['X_phate'] = phate_operator.fit_transform(self.adata.X)
+        sc.pl.embedding(self.adata, basis='phate', color='class', title='PHATE Pseudotime', save='.png')
 
-        # Fit principal curve on phate embedding
-        pc = pcurve(k=5)
-        pc.fit(self.adata.obsm['X_phate'])
-
-        # Extract pc outputs 
-        self.adata.obs['phate_pseudotime'] = pc.pseudotime
-        self.adata.obsm['X_phate_curve'] = pc.points_on_curve_
-        phate_curve_path = pc.curve_ 
-
-        # Visualize 
-        fig,axes = plt.subplots(1, 2, figsize=(14,5))
-
-        # Plot 1: pixels colored by pseudotime (w curve)
-        axes[0].scatter(
-            self.adata.obsm['X_phate'][:,0],
-            self.adata.obsm['X_phate'][:,1],
-            c=self.adata.obs['phate_pseudotime'], 
-            cmap='magma', s=2, alpha= 0.7
+        # Overlay ROI centroids onto phate plot
+                # Build dataframe of PHATE coords
+        phate_coords = pd.DataFrame(
+            self.adata.obsm['X_phate'],
+            columns=['PHATE1', 'PHATE2'],
+            index=self.adata.obs.index
         )
-        axes[0].plot(
-            phate_curve_path[:, 0],
-            phate_curve_path[:, 1],
-            'k-', linewidth=2, label='Pseudotime Trajectory'
-        )
-        axes[0].legend()
+        phate_coords['sample'] = self.adata.obs['sample'].values
+        phate_coords['class'] = self.adata.obs['class'].values
 
-        # Plot 2: pixels colored by class (w curve)
-        axes[0].scatter(
-            self.adata.obsm['X_phate'][:,0],
-            self.adata.obsm['X_phate'][:,1],
-            c=self.adata.uns['class_colors'], 
-            s=2, alpha= 0.7
-        )
-        axes[1].plot(
-            phate_curve_path[:, 0],
-            phate_curve_path[:, 1],
-            'k-', linewidth=2, label='Pseudotime Trajectory'
+        # Compute ROI centroids
+        roi_phate = phate_coords.groupby('sample')[['PHATE1', 'PHATE2']].mean().reset_index()
+        roi_phate['class'] = roi_phate['sample'].map(self.roi_labels)
+        roi_phate['label'] = roi_phate['sample'].str.removeprefix('ROI_')
+
+        class_colors = self.roi_class_colors
+
+        # Plot
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        # Plot pixels
+        ax.scatter(
+            phate_coords['PHATE1'], phate_coords['PHATE2'],
+            c=[class_colors[c] for c in phate_coords['class']],
+            s=0.6, alpha=0.15, rasterized=True
         )
 
-        fig.suptitle('PHATE Pseudotime Trajectory')
+        # Overlay centroids
+        for _, row in roi_phate.iterrows():
+            ax.scatter(
+                row['PHATE1'], row['PHATE2'],
+                color=class_colors[row['class']],
+                s=100, edgecolors='black', linewidths=0.5, zorder=5
+            )
+            ax.text(
+                row['PHATE1'], row['PHATE2'], row['label'],
+                fontsize=9, fontweight='bold',
+                ha='left', va='bottom', zorder=6
+            )
 
-        sc.pl.embedding(self.adata, basis='phate', color='timepoint', cmap='magma', title='PHATE Pseudotime')
+        ax.set_title('PHATE with ROI Centroids')
+        ax.set_xlabel('PHATE1')
+        ax.set_ylabel('PHATE2')
+        ax.set_xticks([])
+        ax.set_yticks([])
 
-    
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/phate_roi_centroids.png'), dpi=150)
+        plt.close()
+
+        print('PHATE with ROI centroids generated successfully.')
+
+
+
 ##### Entire pipeline ##### 
     def allAnalysis(self):
         start = time.time()
@@ -710,10 +1011,11 @@ class SpatialOmicsToolkit:
             self.get_random_forest_ranking()
             self.create_anndata_object()
             self.run_pixel_dim_reduction()
-            # self.compute_mst()
-            #self.run_pseudotime_slingshot()
-            self.run_diffusion_pseudotime()
+            self.get_roi_level_mst()
+            self.project_mst_onto_umap()
             # self.run_pseudotime_phate()
+            # self.get_3d_pca()
+            #self.output_excel.to_excel(os.path.join(os.path.dirname(self.data_path), 'results/pipeline_stats.xlsx'))
         except Exception as e:
             import traceback
             print('Pipeline broke before finishing.')

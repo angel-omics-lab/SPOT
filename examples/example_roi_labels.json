@@ -31,6 +31,12 @@
         {"ROI_126":"DCIS"},
         {"ROI_127":"DCIS"},
         {"ROI_128":"Normal"}
+    ],
+
+    "classes": [
+        {"Normal":"green"},
+        {"DCIS":"dodgerblue"},
+        {"IBC":"orange"}
     ]
 
 }
