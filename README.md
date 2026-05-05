@@ -1,6 +1,6 @@
 <img width="1052" height="333" alt="Image" src="https://github.com/user-attachments/assets/0c105274-b155-44af-934f-71df72cf7b29" />
 
-SPOT (Spatial Omics Toolkit) is an end-to-end spatial omics pipeline. open-sourced, pre-existing statistical methods, like random forest models and principal component analysis (PCA), to provide researchers with a straightforward and comprehensive pipeline for both class based and spatial omics analysis.
+SPOT (Spatial Omics Toolkit) is an end-to-end spatial omics pipeline. open-sourced, pre-existing statistical methods, like random forest models and principal component analysis (PCA), to provide researchers with a straightforward and comprehensive pipeline for both class based and spatial omics analysis by mass spectrometry imaging.
 
 ## Configuring
 To run SPOT, Python needs to be installed. 
