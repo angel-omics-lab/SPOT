@@ -21,7 +21,8 @@ dependencies = [
     "scanpy",
     "networkx",
     "openpyxl",
-    "xlsxwriter"
+    "xlsxwriter",
+    "pyimzml"
 ]
 
 [tool.hatch.build.targets.wheel]
