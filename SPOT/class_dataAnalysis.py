@@ -383,7 +383,7 @@ class SpatialOmicsToolkit:
         color_map = self.roi_class_colors
         leaf_order = dend['ivl']  # ROIs in dendrogram order
         label_colors = [color_map[self.roi_stats.set_index('roi').loc[roi, 'class']] for roi in leaf_order]
-        ax = plt.gca()
+        ax = plt.gca()  
         for tick, color in zip(ax.get_xticklabels(), label_colors):
             tick.set_color(color)
         plt.yticks([])
@@ -633,7 +633,7 @@ class SpatialOmicsToolkit:
         sc.tl.umap(self.adata, min_dist=0.75, n_components=3)
         
         print('Generating PCA and UMAP figures...')
-        sc.pl.pca(self.adata, color='class',
+        sc.pl.pca(self.adata, annotate_var_explained=True, color='class',
                   show=False, save='.png')
         print('PCA plot generated successfully.')
         sc.pl.umap(self.adata, color='class', size=0.6,
@@ -1012,9 +1012,9 @@ class SpatialOmicsToolkit:
             self.run_pixel_dim_reduction()
             self.get_roi_level_mst()
             self.project_mst_onto_umap()
-            # self.run_pseudotime_phate()
-            # self.get_3d_pca()
-            #self.output_excel.to_excel(os.path.join(os.path.dirname(self.data_path), 'results/pipeline_stats.xlsx'))
+            self.run_pseudotime_phate()
+            self.get_3d_pca()
+            self.output_excel.to_excel(os.path.join(os.path.dirname(self.data_path), 'results/pipeline_stats.xlsx'))
         except Exception as e:
             import traceback
             print('Pipeline broke before finishing.')
