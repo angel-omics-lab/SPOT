@@ -20,7 +20,8 @@ dependencies = [
     "anndata",
     "scanpy",
     "networkx",
-    "openpyxl"
+    "openpyxl",
+    "xlsxwriter"
 ]
 
 [tool.hatch.build.targets.wheel]
