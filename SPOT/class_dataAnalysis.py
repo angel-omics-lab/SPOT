@@ -125,7 +125,6 @@ class SpatialOmicsToolkit:
         '''
         Creates a spatial dot plot of the ROIs where each dot is the location of the ROIs spatial centroid. 
         Dots are colored according to their class. 
-        NOTE potential ~upgrade~ is to have the dots overlay a picture of the tissue, This would require cv2 AND for user to pass a png/jpeg
         
         ''' 
         print('Generating spatial dot plot for regions...')
@@ -224,8 +223,8 @@ class SpatialOmicsToolkit:
         # Identify significant peptide 
         print('Identifying differentially expressed peptides...')
         for peptide in self.good_peptides:                                                                            # NOTE 
-            group1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']     # Mean intensities of peptide in DCIS (class 1) rois        
-            group2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'IBC']      # Mean Intensities of peptide in IBC (class 2) rois
+            group1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.roi_classes[1]]     # Mean intensities of peptide in DCIS (class 1) rois        
+            group2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.roi_classes[2]]      # Mean Intensities of peptide in IBC (class 2) rois
             # Run KW
             H_statistic, p_value = stats.kruskal(group1, group2)
             # Add to data frame 
@@ -258,13 +257,13 @@ class SpatialOmicsToolkit:
             fig, ax = plt.subplots(figsize=(2.5, 4))  # create axes explicitly
             plt.rcParams['font.serif'] = ['Arial']
 
-            medians_dcis = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']
-            medians_ibc = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'IBC'] 
+            medians_class1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.roi_classes[1]]
+            medians_class2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.roi_classes[2]] 
 
             plot_data = (                    # NOTE                   # NOTE
-                [{'Intensity': val, 'Class':'DCIS'} for val in medians_dcis]
+                [{'Intensity': val, 'Class':self.roi_classes[1]} for val in medians_class1]
                 +
-                [{'Intensity': val, 'Class':'IBC'} for val in medians_ibc]
+                [{'Intensity': val, 'Class':self.roi_classes[2]} for val in medians_class2]
             )
             plot_df = pd.DataFrame(plot_data)
 
@@ -272,7 +271,7 @@ class SpatialOmicsToolkit:
                 data=plot_df, 
                 x='Class', y='Intensity', 
                 hue='Class', 
-                palette={'DCIS':'dodgerblue', 'IBC':'orange'},      # NOTE
+                palette=self.roi_class_colors,   
                 ax=ax
             )
 
@@ -321,12 +320,12 @@ class SpatialOmicsToolkit:
 
         print('ROI calculations successful!')
         print('Saving medians to datafram...')                  # NOTE
-        dcis_rows = self.roi_stats[self.roi_stats['class'] == 'DCIS'][self.good_peptides]
-        ibc_rows  = self.roi_stats[self.roi_stats['class'] == 'IBC'][self.good_peptides]
+        class1_rows = self.roi_stats[self.roi_stats['class'] == self.roi_classes[1]][self.good_peptides]
+        class2_rows  = self.roi_stats[self.roi_stats['class'] == self.roi_classes[2]][self.good_peptides]
 
         plot_data_df = pd.DataFrame({
-            'median_dcis_allrois': dcis_rows.median(),      # NOTE
-            'median_ibc_allrois':  ibc_rows.median(),       # NOTE
+            'median_class1_allrois': class1_rows.median(),      # NOTE
+            'median_class2_allrois':  class2_rows.median(),       # NOTE
         }) 
 
         self.output_excel = pd.concat([self.output_excel, plot_data_df], axis=1)
@@ -681,8 +680,8 @@ class SpatialOmicsToolkit:
             ax.scatter(row['UMAP1'], row['UMAP2'],
                 color=class_colors[row['class']],
                 s=100, edgecolors='black', linewidths=0.5, zorder=5)
-            # ax.text(row['UMAP1'], row['UMAP2'], row['label'],
-            #         fontsize=9, fontweight='bold', ha='left', va='bottom', zorder=6)
+            ax.text(row['UMAP1'], row['UMAP2'], row['label'],
+                    fontsize=9, fontweight='bold', ha='left', va='bottom', zorder=6)
             
         # # Overlay principal curve
         # ax.plot(
@@ -871,8 +870,8 @@ class SpatialOmicsToolkit:
             ax.scatter(umap_coords[i, 0], umap_coords[i, 1],
                     color=node_colors[i], s=100,
                     edgecolors='black', linewidths=0.5, zorder=5)
-            # ax.text(umap_coords[i, 0], umap_coords[i, 1], labels[i],
-            #         fontsize=8, fontweight='bold', ha='left', va='bottom', zorder=6)
+            ax.text(umap_coords[i, 0], umap_coords[i, 1], labels[i],
+                    fontsize=8, fontweight='bold', ha='left', va='bottom', zorder=6)
             
         ax.scatter(self.adata.obsm['X_umap'][:,0], self.adata.obsm['X_umap'][:,1], 
                    c=[class_colors[c] for c in self.adata.obs['class']], 
