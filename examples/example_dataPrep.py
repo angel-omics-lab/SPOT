@@ -5,9 +5,8 @@ This script is an example of how to use the data preparation component of SPOT t
 from SPOT.class_dataPrep import ImzmlConverter
 
 FOLDER_PATH = r'F:\Bryn\imzML_extraction\heavy dcis\region_imzmls'       # Paste the path to the folder containing all relevant imzML files
-OUTPUT_PATH = r'F:\Bryn\imzML_extraction\heavy dcis'       # Paste the path to the folder you want the spreadsheet to be saved to
 
-converter = ImzmlConverter(input_path = FOLDER_PATH, output_path = OUTPUT_PATH)
+converter = ImzmlConverter(input_path = FOLDER_PATH)
 
 converter.generateWorksheet()
 
