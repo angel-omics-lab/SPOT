@@ -110,6 +110,6 @@ class ImzmlConverter:
 
 
     def generateWorksheet(self):
-        # self.check_existance()
-        # self.combine_dfs_to_excel()
+        self.check_existance()
+        self.combine_dfs_to_excel()
         self.aggregate_columns()
