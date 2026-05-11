@@ -49,6 +49,9 @@ class SpatialOmicsToolkit:
             print('ROI classes: ', self.roi_classes)
             print('ROI class colors: ', self.roi_class_colors)
 
+            self.normal_class = 'Normal'
+            self.analysis_classes = [c for c in self.roi_classes if c != self.normal_class]
+
         except Exception as e:
             print('Issue loading and/or reading json file, check file path.')
             print(e)
@@ -125,7 +128,6 @@ class SpatialOmicsToolkit:
         '''
         Creates a spatial dot plot of the ROIs where each dot is the location of the ROIs spatial centroid. 
         Dots are colored according to their class. 
-        NOTE potential ~upgrade~ is to have the dots overlay a picture of the tissue, This would require cv2 AND for user to pass a png/jpeg
         
         ''' 
         print('Generating spatial dot plot for regions...')
@@ -223,9 +225,9 @@ class SpatialOmicsToolkit:
         results_list = []
         # Identify significant peptide 
         print('Identifying differentially expressed peptides...')
-        for peptide in self.good_peptides:                                                                            # NOTE 
-            group1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']     # Mean intensities of peptide in DCIS (class 1) rois        
-            group2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'IBC']      # Mean Intensities of peptide in IBC (class 2) rois
+        for peptide in self.good_peptides:                                                                           
+            group1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[0]]     # Mean intensities of peptide in DCIS (class 1) rois        
+            group2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[1]]      # Mean Intensities of peptide in IBC (class 2) rois
             # Run KW
             H_statistic, p_value = stats.kruskal(group1, group2)
             # Add to data frame 
@@ -258,13 +260,13 @@ class SpatialOmicsToolkit:
             fig, ax = plt.subplots(figsize=(2.5, 4))  # create axes explicitly
             plt.rcParams['font.serif'] = ['Arial']
 
-            medians_dcis = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']
-            medians_ibc = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'IBC'] 
+            medians_dcis = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[0]]
+            medians_ibc = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[1]] 
 
-            plot_data = (                    # NOTE                   # NOTE
-                [{'Intensity': val, 'Class':'DCIS'} for val in medians_dcis]
+            plot_data = (                                    
+                [{'Intensity': val, 'Class':self.analysis_classes[0]} for val in medians_dcis]
                 +
-                [{'Intensity': val, 'Class':'IBC'} for val in medians_ibc]
+                [{'Intensity': val, 'Class':self.analysis_classes[1]} for val in medians_ibc]
             )
             plot_df = pd.DataFrame(plot_data)
 
@@ -272,7 +274,7 @@ class SpatialOmicsToolkit:
                 data=plot_df, 
                 x='Class', y='Intensity', 
                 hue='Class', 
-                palette={'DCIS':'dodgerblue', 'IBC':'orange'},      # NOTE
+                palette={self.roi_class_colors},    
                 ax=ax
             )
 
@@ -320,9 +322,9 @@ class SpatialOmicsToolkit:
         self.roi_stats['class'] = self.roi_stats['roi'].map(self.roi_labels)
 
         print('ROI calculations successful!')
-        print('Saving medians to datafram...')                  # NOTE
-        dcis_rows = self.roi_stats[self.roi_stats['class'] == 'DCIS'][self.good_peptides]
-        ibc_rows  = self.roi_stats[self.roi_stats['class'] == 'IBC'][self.good_peptides]
+        print('Saving medians to datafram...')                
+        dcis_rows = self.roi_stats[self.roi_stats['class'] == self.analysis_classes[0]][self.good_peptides]
+        ibc_rows  = self.roi_stats[self.roi_stats['class'] == self.analysis_classes[1]][self.good_peptides]
 
         plot_data_df = pd.DataFrame({
             'median_dcis_allrois': dcis_rows.median(),      # NOTE
@@ -376,6 +378,8 @@ class SpatialOmicsToolkit:
         feature_matrix = self.roi_stats[self.good_peptides].values
         # Create dendrogram
         print('Constructing dendrogram for visualization...')
+        plt.rcParams['lines.linewidth'] = 2.5
+        plt.rcParams['font.serif'] = ['Arial']
         linkage_data = linkage(feature_matrix, method='ward', metric='euclidean')
         dend = dendrogram(linkage_data, labels=self.roi_stats['roi'].values)
  
@@ -732,17 +736,7 @@ class SpatialOmicsToolkit:
         # Save interactive html
         fig.write_html(os.path.join(os.path.dirname(self.data_path), 'results/pca_3d.html')) 
 
-    def get_3d_umap(self):
-        import plotly.graph_objects as go
-        
-        umap_coords = pd.DataFrame(
-            self.adata.obsm['X_umap'][:, :3],
-            columns=['UMAP1', 'UMAP2', 'UMAP3'],
-            index=self.adata.obs.index
-        )
-
-        umap_coords['class'] = self.adata.obs['class'].values
-        umap_coords['sample'] = self.adata.obs['sample'].values    
+    # def get_3d_umap(self):
 
 
     def get_roi_level_mst(self):
