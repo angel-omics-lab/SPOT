@@ -115,7 +115,7 @@ class SpatialOmicsToolkit:
             NA_prop = (intensities == 0).mean()
             if (NA_prop > 0.25).mean() > 0.25:
                 to_remove.append(region)
-                #print(f'Removed {region} with {label} label from list: >25% zero intensities.')
+                print(f'Removed {region} with {label} label from list: >25% zero intensities.')
             else: 
                 print(f'{region} accepted')
         for region in to_remove:
@@ -900,7 +900,7 @@ class SpatialOmicsToolkit:
             self.adata.obsm['X_phate'] = phate_operator.fit_transform(self.adata.X)
             sc.pl.embedding(self.adata, basis='phate', color='class', save='_class.png')    # Color by class
             self.adata.obs['phate1'] = self.adata.obsm['X_phate'][:, 0]
-            sc.pl.embedding(self.adata, basis='phate', color='phate1', cmap='bwr_r', save='_pseudotime.png')   # Color by phate trajectory
+            sc.pl.embedding(self.adata, basis='phate', color='phate1', cmap='plasma', save='_pseudotime.png')   # Color by phate trajectory
 
             print('PHATE generated successfully.')
 
