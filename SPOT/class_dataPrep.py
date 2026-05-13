@@ -59,8 +59,9 @@ class ImzmlConverter:
         print('Converting all imzML files to DataFrames...')
         for name, path in self.imzml_dict.items():
             df = self.convert_imzml_to_df(path)
+            df = df.reset_index()
             sheet_name = os.path.splitext(name)[0][:31]     # remove file extension and cap at 31 characters so compatible with excel
-            df.to_excel(writer, sheet_name=sheet_name, index=True)
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
         writer.close()
         print('Successfully saved imzMLs to excel sheet.')
     
