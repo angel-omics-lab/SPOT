@@ -49,6 +49,9 @@ class SpatialOmicsToolkit:
             print('ROI classes: ', self.roi_classes)
             print('ROI class colors: ', self.roi_class_colors)
 
+            self.normal_class = 'Normal'
+            self.analysis_classes = [c for c in self.roi_classes if c != self.normal_class]
+
         except Exception as e:
             print('Issue loading and/or reading json file, check file path.')
             print(e)
@@ -79,8 +82,8 @@ class SpatialOmicsToolkit:
             df = df.loc[:, df.notna().any()]
 
             # Keep only numeric peptide column names
-            metadata_cols = df.columns[:4].tolist()
-            peptide_cols = df.columns[4:]
+            metadata_cols = df.columns[:2].tolist()
+            peptide_cols = df.columns[2:]
 
             numeric_peptide_cols = [
                 c for c in peptide_cols 
@@ -106,13 +109,15 @@ class SpatialOmicsToolkit:
         to_remove = []
         for region, label in self.roi_labels.items():
             data = self.data[region]
-            intensities = data.iloc[:, 4:]      # Skip first 4 columns 
+            intensities = data.iloc[:, 2:]      # Skip x,y columns 
             print(f'Processing {region}...')
-            # intensities = intensities.fillna(0)        # Change all NaN values to 0 
-            NA_prop = (intensities == 0).mean()
-            if (NA_prop > 0.25).mean() > 0.25:
+            
+            zero_rows = (intensities == 0).all(axis=1)
+            zero_row_prop = zero_rows.mean() 
+
+            if (zero_row_prop > 0.25).mean() > 0.25:
                 to_remove.append(region)
-                #print(f'Removed {region} with {label} label from list: >25% zero intensities.')
+                print(f'Removed {region} with {label} label from list: >25% zero intensities.')
             else: 
                 print(f'{region} accepted')
         for region in to_remove:
@@ -180,12 +185,12 @@ class SpatialOmicsToolkit:
         # Get union of all peptide columns across ROIs (handles ROIs w different peptides)       
         all_peptides = set()    
         for region in self.roi_labels:
-            all_peptides.update(self.data[region].columns[4:])        
+            all_peptides.update(self.data[region].columns[2:])        
         
         zero_counts_per_peptide = pd.Series(0, index=list(all_peptides))
         
         for region in self.roi_labels:
-            intensities = self.data[region].iloc[:, 4:]     # Grabs peptide columns for the roi
+            intensities = self.data[region].iloc[:, 2:]     # Grabs peptide columns for the roi
             zero_pct = (intensities==0).mean()      # Calculate percentage of 0 intensities for each peptide
             # Identify peptides as T/F based on zero_pct, and aligns Series to full peptide index (allows for peptides existing in some ROIs but not others)
             flagged = (zero_pct > 0.2).reindex(zero_counts_per_peptide.index, fill_value=0)     
@@ -222,9 +227,9 @@ class SpatialOmicsToolkit:
         results_list = []
         # Identify significant peptide 
         print('Identifying differentially expressed peptides...')
-        for peptide in self.good_peptides:                                                                            # NOTE 
-            group1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.roi_classes[1]]     # Mean intensities of peptide in DCIS (class 1) rois        
-            group2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.roi_classes[2]]      # Mean Intensities of peptide in IBC (class 2) rois
+        for peptide in self.good_peptides:                                                                           
+            group1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[0]]     # Mean intensities of peptide in DCIS (class 1) rois        
+            group2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[1]]      # Mean Intensities of peptide in IBC (class 2) rois
             # Run KW
             H_statistic, p_value = stats.kruskal(group1, group2)
             # Add to data frame 
@@ -257,13 +262,13 @@ class SpatialOmicsToolkit:
             fig, ax = plt.subplots(figsize=(2.5, 4))  # create axes explicitly
             plt.rcParams['font.serif'] = ['Arial']
 
-            medians_class1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.roi_classes[1]]
-            medians_class2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.roi_classes[2]] 
+            medians_dcis = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[0]]
+            medians_ibc = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[1]] 
 
-            plot_data = (                    # NOTE                   # NOTE
-                [{'Intensity': val, 'Class':self.roi_classes[1]} for val in medians_class1]
+            plot_data = (                                    
+                [{'Intensity': val, 'Class':self.analysis_classes[0]} for val in medians_dcis]
                 +
-                [{'Intensity': val, 'Class':self.roi_classes[2]} for val in medians_class2]
+                [{'Intensity': val, 'Class':self.analysis_classes[1]} for val in medians_ibc]
             )
             plot_df = pd.DataFrame(plot_data)
 
@@ -271,7 +276,7 @@ class SpatialOmicsToolkit:
                 data=plot_df, 
                 x='Class', y='Intensity', 
                 hue='Class', 
-                palette=self.roi_class_colors,   
+                palette=self.roi_class_colors,    
                 ax=ax
             )
 
@@ -319,9 +324,9 @@ class SpatialOmicsToolkit:
         self.roi_stats['class'] = self.roi_stats['roi'].map(self.roi_labels)
 
         print('ROI calculations successful!')
-        print('Saving medians to datafram...')                  # NOTE
-        class1_rows = self.roi_stats[self.roi_stats['class'] == self.roi_classes[1]][self.good_peptides]
-        class2_rows  = self.roi_stats[self.roi_stats['class'] == self.roi_classes[2]][self.good_peptides]
+        print('Saving medians to datafram...')                
+        dcis_rows = self.roi_stats[self.roi_stats['class'] == self.analysis_classes[0]][self.good_peptides]
+        ibc_rows  = self.roi_stats[self.roi_stats['class'] == self.analysis_classes[1]][self.good_peptides]
 
         plot_data_df = pd.DataFrame({
             'median_class1_allrois': class1_rows.median(),      # NOTE
@@ -375,6 +380,8 @@ class SpatialOmicsToolkit:
         feature_matrix = self.roi_stats[self.good_peptides].values
         # Create dendrogram
         print('Constructing dendrogram for visualization...')
+        plt.rcParams['lines.linewidth'] = 2.5
+        plt.rcParams['font.serif'] = ['Arial']
         linkage_data = linkage(feature_matrix, method='ward', metric='euclidean')
         dend = dendrogram(linkage_data, labels=self.roi_stats['roi'].values)
  
@@ -731,17 +738,7 @@ class SpatialOmicsToolkit:
         # Save interactive html
         fig.write_html(os.path.join(os.path.dirname(self.data_path), 'results/pca_3d.html')) 
 
-    def get_3d_umap(self):
-        import plotly.graph_objects as go
-        
-        umap_coords = pd.DataFrame(
-            self.adata.obsm['X_umap'][:, :3],
-            columns=['UMAP1', 'UMAP2', 'UMAP3'],
-            index=self.adata.obs.index
-        )
-
-        umap_coords['class'] = self.adata.obs['class'].values
-        umap_coords['sample'] = self.adata.obs['sample'].values    
+    # def get_3d_umap(self):
 
 
     def get_roi_level_mst(self):
@@ -897,98 +894,17 @@ class SpatialOmicsToolkit:
         print('MST UMAP projection complete. Saved to results/mst_umap_projection.png')
     
     
-    def run_pseudotime_slingshot(self):
-        '''
-        Runs Slingshot pseudotime on ROI-level centroids in UMAP space.
-        Each ROI is treated as a cluster--i.e. it's mean UMAP/spatial coordinate is the cluster centroid passed to Slingshot.
-        
-        '''
-        from pyslingshot import Slingshot
-        import anndata as ad
-
-        print('Running Slingshot pseudotime on ROI centroids...')
-        
-        # Step 4: Root at Normal ROI 
-        coords = self.roi_stats[self.good_peptides].values
-        normal_mask = self.roi_stats['class'] == 'Normal'
-        normal_indices = self.roi_stats[normal_mask].index.tolist()
-        normal_coords = coords[normal_mask]
-        normal_centroid = normal_coords.mean(axis=0)
-        dists_to_centroid = np.linalg.norm(normal_coords - normal_centroid, axis=1)
-        local_root = np.argmin(dists_to_centroid)
-        root_node = normal_indices[local_root]
-
-        # ── 2. Attach ROI cluster labels to existing adata ──────────────────────
-        # Map each pixel to its integer ROI cluster index (0 … n_rois-1)
-        roi_names  = self.roi_stats['roi'].values          # ordered list of ROIs
-        roi_to_idx = {roi: i for i, roi in enumerate(roi_names)}
-        self.adata.obs['roi_cluster'] = (
-            self.adata.obs['sample'].map(roi_to_idx).astype(int)
-        )
-
-        slingshot= Slingshot(self.adata, celltype_key='roi_cluster', obsm_key='X_umap', start_node=root_node, is_debugging='verbose')
-        slingshot.fit(num_epochs=1)
-
-
     def run_pseudotime_phate(self):
-        import phate
-        print('Running PHATE Pseudotime...')
-        plt.rcParams['font.serif'] = ['Arial']
-        phate_operator = phate.PHATE(knn=10, t=45, verbose=True)
-        self.adata.obsm['X_phate'] = phate_operator.fit_transform(self.adata.X)
-        sc.pl.embedding(self.adata, basis='phate', color='class', title='PHATE Pseudotime', save='.png')
+            import phate
+            print('Running PHATE Pseudotime...')
+            plt.rcParams['font.serif'] = ['Arial']
+            phate_operator = phate.PHATE(knn=10, t=45, verbose=True)
+            self.adata.obsm['X_phate'] = phate_operator.fit_transform(self.adata.X)
+            sc.pl.embedding(self.adata, basis='phate', color='class', save='_class.png')    # Color by class
+            self.adata.obs['phate1'] = self.adata.obsm['X_phate'][:, 0]
+            sc.pl.embedding(self.adata, basis='phate', color='phate1', cmap='plasma', save='_pseudotime.png')   # Color by phate trajectory
 
-        # Overlay ROI centroids onto phate plot
-                # Build dataframe of PHATE coords
-        phate_coords = pd.DataFrame(
-            self.adata.obsm['X_phate'],
-            columns=['PHATE1', 'PHATE2'],
-            index=self.adata.obs.index
-        )
-        phate_coords['sample'] = self.adata.obs['sample'].values
-        phate_coords['class'] = self.adata.obs['class'].values
-
-        # Compute ROI centroids
-        roi_phate = phate_coords.groupby('sample')[['PHATE1', 'PHATE2']].mean().reset_index()
-        roi_phate['class'] = roi_phate['sample'].map(self.roi_labels)
-        roi_phate['label'] = roi_phate['sample'].str.removeprefix('ROI_')
-
-        class_colors = self.roi_class_colors
-
-        # Plot
-        fig, ax = plt.subplots(figsize=(8, 6))
-
-        # Plot pixels
-        ax.scatter(
-            phate_coords['PHATE1'], phate_coords['PHATE2'],
-            c=[class_colors[c] for c in phate_coords['class']],
-            s=0.6, alpha=0.15, rasterized=True
-        )
-
-        # Overlay centroids
-        for _, row in roi_phate.iterrows():
-            ax.scatter(
-                row['PHATE1'], row['PHATE2'],
-                color=class_colors[row['class']],
-                s=100, edgecolors='black', linewidths=0.5, zorder=5
-            )
-            ax.text(
-                row['PHATE1'], row['PHATE2'], row['label'],
-                fontsize=9, fontweight='bold',
-                ha='left', va='bottom', zorder=6
-            )
-
-        ax.set_title('PHATE with ROI Centroids')
-        ax.set_xlabel('PHATE1')
-        ax.set_ylabel('PHATE2')
-        ax.set_xticks([])
-        ax.set_yticks([])
-
-        plt.tight_layout()
-        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/phate_roi_centroids.png'), dpi=150)
-        plt.close()
-
-        print('PHATE with ROI centroids generated successfully.')
+            print('PHATE generated successfully.')
 
 
 

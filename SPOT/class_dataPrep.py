@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 import glob
 from pyimzml.ImzMLParser import ImzMLParser
+import xml.etree.ElementTree as ET
 
 class ImzmlConverter:
     def __init__(self, input_path):
@@ -20,11 +21,28 @@ class ImzmlConverter:
         print(f'{len(self.imzml_dict.keys())} imzML files found in folder.')
     
 
+    def get_3d_positions(self, imzml_path):
+        tree=ET.parse(imzml_path)
+        root = tree.getroot()
+        ns = {'ms': 'http://psi.hupo.org/ms/mzml'}  # namespace from file's xmlns
+        positions = []
+        for scan in root.findall('.//ms:scan', ns):
+            x = scan.find('ms:userParam[@name="3DPositionX"]', ns)
+            y = scan.find('ms:userParam[@name="3DPositionY"]', ns)
+            if x is not None and y is not None: 
+                positions.append((float(x.get('value')), float(y.get('value'))))
+        return positions
+
+
     def convert_imzml_to_df(self, imzml_path):
         parser = ImzMLParser(imzml_path)
         pixel_level_spectra = []
 
-        for idx, (x,y,z) in enumerate(parser.coordinates):
+        positions = self.get_3d_positions(imzml_path)
+        
+        print(f"Scans from XML: {len(positions)}, Spectra from parser: {len(parser.coordinates)}")      # Sanity check
+
+        for idx, (x,y) in enumerate(positions):
             mzs, intensities = parser.getspectrum(idx)      # Unpack mzs and intensities so can zip loop over them
             for mz, intensity in zip(mzs, intensities):
                 pixel_level_spectra.append({'x':x, 'y':y, 'mz':mz, 'intensity':intensity}) 
@@ -41,8 +59,9 @@ class ImzmlConverter:
         print('Converting all imzML files to DataFrames...')
         for name, path in self.imzml_dict.items():
             df = self.convert_imzml_to_df(path)
+            df = df.reset_index()
             sheet_name = os.path.splitext(name)[0][:31]     # remove file extension and cap at 31 characters so compatible with excel
-            df.to_excel(writer, sheet_name=sheet_name, index=True)
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
         writer.close()
         print('Successfully saved imzMLs to excel sheet.')
     
