@@ -1,6 +1,6 @@
 <img width="1052" height="333" alt="Image" src="https://github.com/user-attachments/assets/0c105274-b155-44af-934f-71df72cf7b29" />
 
-SPOT (Spatial Omics Toolkit) is an end-to-end spatial omics pipeline. open-sourced, pre-existing statistical methods, like random forest models and principal component analysis (PCA), to provide researchers with a straightforward and comprehensive pipeline for both class based and spatial omics analysis.
+SPOT (Spatial Omics Toolkit) is an end-to-end spatial omics pipeline. open-sourced, pre-existing statistical methods, like random forest models and principal component analysis (PCA), to provide researchers with a straightforward and comprehensive pipeline for both class based and spatial omics analysis by mass spectrometry imaging.
 
 ## Configuring
 To run SPOT, Python needs to be installed. 
@@ -22,10 +22,33 @@ pip install git+https://github.com/angel-omics-lab/SPOT.git
 
 ## Usage
 1. Prepare the input data. If you already have an excel file with ROIs separated into unique sheets within the file, you can skip this step and proceed to Step 1b. 
-    * a. Given imzML files for each region of interest, they can be converted to a pipeline-specific worksheet with the methods in class_dataPrep. You can see an example script using these methods in example_dataPrep. You can directly download a copy of the file and change the path variables or incorporate it a script of your own.
+    * a. Given imzML files for each region of interest, they can be converted to a pipeline-specific worksheet with the code below.
+    * ```python
+      from SPOT.class_dataPrep import ImzmlConverter
+      
+      IMZML_FOLDER = r'/path/to/folder/containing/imzML/files'
+      
+      dp = ImzmlConverter(input_path= IMZML_FOLDER)
+      dp.generateWorksheet()
+      
+      # The output worksheet will be saved to the same folder as the imzML files.
+      ```
+      * If you dont have a code editor, you can copy the example_dataPrep.py file in /examples and edit it in a text editor.
+      * Run the script in your terminal within the virtual environment.
     * b. Once your worksheet has been created, create a [JSON](https://www.w3schools.com/Js/js_json.asp) file that lists the ROIs and their disease classification. The ROI name in the JSON file and the individual sheet names contain ROI-specific data need to be identical. You can see examples of a properly formatted .xlsx file and .json file [here](https://drive.google.com/drive/folders/1-arHKAKMLO0oz5SW2x6M5L1ashdgdIYV?usp=sharing). You can directly download a copy of the file and change the roi names/classes or create your own from scratch, making sure the format is comparable to the example json. 
-2. Create a script to run the pipeline. You can see an example script that runs the pipeline in example_dataAnalysis. You can directly download a copy of the file and change the path variables or incorporate it a script of your own.
-3. Run SPOT analysis. Make sure to run the script while in the virtual environment you created earlier. 
+2. Given the properly formatted worksheet and JSON file, you can run the entire analytical pipeline with the code below.
+* ```python
+      from SPOT.class_dataAnalysis import SpatialOmicsToolkit
+  
+      DATA_PATH = r'/path/to/worksheet'
+      JSON_PATH = r'path/to/json/file'
+      
+      spot = SpatialOmicsToolkit(data_path=DATA_PATH, json_path=JSON_PATH)
+      spot.allAnalysis()
+      
+      # All output will be saved to a 'results' folder in the same directory as the input worksheet.
+      ```
+4. Run SPOT analysis. Make sure to run the script while in the virtual environment you created earlier. 
 ```python
 # Within the activated virtual environment, enter the following command:
 python your/path/to/script.py    # NOTE: on a Mac, you may need to have python3 as the prefix instead of python 

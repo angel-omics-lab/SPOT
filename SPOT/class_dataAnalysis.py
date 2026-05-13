@@ -329,8 +329,8 @@ class SpatialOmicsToolkit:
         ibc_rows  = self.roi_stats[self.roi_stats['class'] == self.analysis_classes[1]][self.good_peptides]
 
         plot_data_df = pd.DataFrame({
-            'median_dcis_allrois': dcis_rows.median(),      # NOTE
-            'median_ibc_allrois':  ibc_rows.median(),       # NOTE
+            'median_class1_allrois': class1_rows.median(),      # NOTE
+            'median_class2_allrois':  class2_rows.median(),       # NOTE
         }) 
 
         self.output_excel = pd.concat([self.output_excel, plot_data_df], axis=1)
