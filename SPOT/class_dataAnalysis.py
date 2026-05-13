@@ -109,11 +109,13 @@ class SpatialOmicsToolkit:
         to_remove = []
         for region, label in self.roi_labels.items():
             data = self.data[region]
-            intensities = data.iloc[:, 2:]      # Skip first 2 columns 
+            intensities = data.iloc[:, 2:]      # Skip x,y columns 
             print(f'Processing {region}...')
-            # intensities = intensities.fillna(0)        # Change all NaN values to 0 
-            NA_prop = (intensities == 0).mean()
-            if (NA_prop > 0.25).mean() > 0.25:
+            
+            zero_rows = (intensities == 0).all(axis=1)
+            zero_row_prop = zero_rows.mean() 
+
+            if (zero_row_prop > 0.25).mean() > 0.25:
                 to_remove.append(region)
                 print(f'Removed {region} with {label} label from list: >25% zero intensities.')
             else: 
