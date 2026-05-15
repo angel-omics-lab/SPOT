@@ -108,8 +108,8 @@ class ImzmlConverter:
                                 ungrouped.pop(i)
                             else:
                                 i += 1
-                        combined = df[safe_group].max(axis=1)
-                        combined.name = np.median(np.array(safe_group, dtype=float))
+                        combined.name = round(float(np.median(np.array(safe_group, dtype=float))), 3)
+                        combined.name = round(float(np.median(col_names.astype(float))), 3)
                         output_cols.append(combined)
                 
                 else :      # conflict rate < 0.10

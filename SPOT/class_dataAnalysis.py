@@ -200,7 +200,7 @@ class SpatialOmicsToolkit:
         threshold = len(self.roi_labels)*0.10       
         self.good_peptides = zero_counts_per_peptide[zero_counts_per_peptide <= threshold].index.tolist()
 
-        print('Peptide filtering complete. Filtered list: ', self.good_peptides)
+        print('Peptide sparsity filtering complete.')
         # return [float(p) for p in self.good_peptides]
     
 
@@ -221,17 +221,18 @@ class SpatialOmicsToolkit:
         Identifies peptides that have differential expression between classes (in this instance DCIS v IBC) via 
         Kruskal-Wallis test with Benjamini-Hochberg FDR validation.
         
-        Returns:
+        Returns: 
             good_peptides(list) updated so it is now only those differentially expressed.
         '''
         results_list = []
         # Identify significant peptide 
         print('Identifying differentially expressed peptides...')
         for peptide in self.good_peptides:                                                                           
-            group1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[0]]     # Mean intensities of peptide in DCIS (class 1) rois        
-            group2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[1]]      # Mean Intensities of peptide in IBC (class 2) rois
+            group1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[0] and peptide in self.data[region].columns]     # Median intensities of peptide in class 1 rois        
+            group2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[1] and peptide in self.data[region].columns]      # Median Intensities of peptide in class 2 rois
+            group3 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[1] and peptide in self.data[region].columns]
             # Run KW
-            H_statistic, p_value = stats.kruskal(group1, group2)
+            H_statistic, p_value = stats.kruskal(group1, group2, group3)
             # Add to data frame 
             results_list.append({
             'peptide': peptide, 
@@ -243,7 +244,7 @@ class SpatialOmicsToolkit:
         results_df['qvalue_bh'] = q_values
         # Save peptides whose q value is <= 0.05
         self.good_peptides = results_df[results_df['qvalue_bh'] <= 0.05]['peptide'].tolist()
-        if not self.good_peptides: 
+        if len(self.good_peptides) == 0: 
             raise ValueError('No peptides were identified to be significant with 95 percent confidence. Pipeline stopped.')
         print('Differential analysis complete. Significant peptides: ', self.good_peptides)
         print(f'{len(reject)} peptides removed: non-significant')
