@@ -228,8 +228,19 @@ class SpatialOmicsToolkit:
         # Identify significant peptide 
         print('Identifying differentially expressed peptides...')
         for peptide in self.good_peptides:                                                                           
+<<<<<<< Updated upstream
             group1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[0]]     # Mean intensities of peptide in DCIS (class 1) rois        
             group2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[1]]      # Mean Intensities of peptide in IBC (class 2) rois
+=======
+            group1 = [self.data[region][peptide].median() 
+                      for region in self.roi_labels 
+                      if self.roi_labels[region] == self.analysis_classes[0]
+                      and peptide in self.data[region].columns]
+            group2 = [self.data[region][peptide].median() 
+                      for region in self.roi_labels 
+                      if self.roi_labels[region] == self.analysis_classes[1]
+                      and peptide in self.data[region].columns]             
+>>>>>>> Stashed changes
             # Run KW
             H_statistic, p_value = stats.kruskal(group1, group2)
             # Add to data frame 
@@ -268,7 +279,11 @@ class SpatialOmicsToolkit:
             plot_data = (                                    
                 [{'Intensity': val, 'Class':self.analysis_classes[0]} for val in medians_dcis]
                 +
+<<<<<<< Updated upstream
                 [{'Intensity': val, 'Class':self.analysis_classes[1]} for val in medians_ibc]
+=======
+                [{'Intensity': val, 'Class':self.analysis_classes[1]} for val in medians_class2]
+>>>>>>> Stashed changes
             )
             plot_df = pd.DataFrame(plot_data)
 
@@ -629,11 +644,19 @@ class SpatialOmicsToolkit:
         sc.pp.pca(self.adata, n_comps=max_comps)       # Run pca with max comps
         cumsum = np.cumsum(self.adata.uns['pca']['variance_ratio'])
         
+<<<<<<< Updated upstream
         n_comps = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
         print(f'Retaining {n_comps} principal components (explain >= 95% of variance)')
 
         print('Running PCA...') 
         sc.pp.pca(self.adata, n_comps=20)
+=======
+        n_comps_ret = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
+        print(f'Retaining {n_comps_ret} principal components (explain >= 95% of variance)')
+
+        print('Running PCA...') 
+        sc.pp.pca(self.adata, n_comps=n_comps_ret)
+>>>>>>> Stashed changes
         
         print('Running UMAP analysis; this may take a while...')
         sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=3, n_neighbors=50)
