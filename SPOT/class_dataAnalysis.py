@@ -242,11 +242,15 @@ class SpatialOmicsToolkit:
         reject, q_values, _, _ = multipletests(results_df['pvalue_kw'], alpha=0.05, method='fdr_bh')
         results_df['qvalue_bh'] = q_values
         # Save peptides whose q value is <= 0.05
-        self.good_peptides = results_df[results_df['qvalue_bh'] <= 0.05]['peptide'].tolist()
-        if not self.good_peptides: 
-            raise ValueError('No peptides were identified to be significant with 95 percent confidence. Pipeline stopped.')
+        filtered_peptides = results_df[results_df['qvalue_bh'] <= 0.05]['peptide'].tolist()
+        if not filtered_peptides: 
+            print('WARNING: No peptides were identified with BH FDR qvalue <= 0.05. Falling back to peptides with KW pvalue <=0.05.')
+            self.good_peptides = results_df[results_df['pvalue_kw'] <= 0.05]['peptide'].tolist()
+        else: 
+            self.good_peptides = filtered_peptides
+        
         print('Differential analysis complete. Significant peptides: ', self.good_peptides)
-        print(f'{len(reject)} peptides removed: non-significant')
+        print(f'{len(self.good_peptides)} peptides retained.')
         print('Saving filtered peptide list to data frame...')
         self.output_excel = results_df.set_index('peptide')
         
@@ -937,5 +941,5 @@ class SpatialOmicsToolkit:
             traceback.print_exc()
         finally: 
             end = time.time()
-            duration = (end-start) // 60    # in minutes
+            duration = (end-start) / 60    # in minutes
             print(f'Total duration: {duration:.2f} minutes')
