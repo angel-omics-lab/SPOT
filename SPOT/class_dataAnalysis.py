@@ -41,6 +41,18 @@ class SpatialOmicsToolkit:
             self.roi_labels = {}
             for entry in file['roi_labels']:
                 self.roi_labels.update(entry)
+<<<<<<< Updated upstream
+=======
+            for entry in file['classes']:
+                self.roi_class_colors.update(entry)
+            self.roi_classes = list(self.roi_class_colors.keys())
+            print('ROI classes: ', self.roi_classes)
+            print('ROI class colors: ', self.roi_class_colors)
+
+            self.normal_class = 'Normal' if 'Normal' in self.roi_classes else None
+            self.analysis_classes = [c for c in self.roi_classes if c != self.normal_class]
+
+>>>>>>> Stashed changes
         except Exception as e:
             print('Issue loading and/or reading json file, check file path.')
             print(e)
@@ -71,8 +83,8 @@ class SpatialOmicsToolkit:
             df = df.loc[:, df.notna().any()]
 
             # Keep only numeric peptide column names
-            metadata_cols = df.columns[:4].tolist()
-            peptide_cols = df.columns[4:]
+            metadata_cols = df.columns[:2].tolist()
+            peptide_cols = df.columns[2:]
 
             numeric_peptide_cols = [
                 c for c in peptide_cols 
@@ -82,7 +94,11 @@ class SpatialOmicsToolkit:
             if dropped:
                 print(f'{region}: dropping {len(dropped)} non-numeric columns')
             
-            self.data[region] =  df[metadata_cols + numeric_peptide_cols]
+            df = df[metadata_cols + numeric_peptide_cols]
+            
+            rename_map = {c: round(c,3) for c in numeric_peptide_cols}
+            df = df.rename(columns=rename_map)
+            
         print('Spreadsheet formatting check complete.')
 
 
@@ -98,8 +114,9 @@ class SpatialOmicsToolkit:
         to_remove = []
         for region, label in self.roi_labels.items():
             data = self.data[region]
-            intensities = data.iloc[:, 4:]      # Skip first 4 columns 
+            intensities = data.iloc[:, 2:]      # Skip x,y columns 
             print(f'Processing {region}...')
+<<<<<<< Updated upstream
             intensities = intensities.fillna(0)        # Change all NaN values to 0 
             # zeros = (intensities==0).astype(int).sum().sum()      # Number of 0 intensities
             # total = intensities.shape[0]*data.shape[1]     # Total number of intensities
@@ -111,6 +128,13 @@ class SpatialOmicsToolkit:
             #     print(f'{region} accepted')
             NA_prop = (intensities == 0).mean()
             if (NA_prop > 0.25).mean() > 0.25:
+=======
+            
+            zero_rows = (intensities == 0).all(axis=1)
+            zero_row_prop = zero_rows.mean() 
+
+            if (zero_row_prop > 0.25).mean() > 0.25:
+>>>>>>> Stashed changes
                 to_remove.append(region)
                 print(f'Removed {region} with {label} label from list: >25% zero intensities.')
             else: 
@@ -181,12 +205,12 @@ class SpatialOmicsToolkit:
         # Get union of all peptide columns across ROIs (handles ROIs w different peptides)       
         all_peptides = set()    
         for region in self.roi_labels:
-            all_peptides.update(self.data[region].columns[4:])        
+            all_peptides.update(self.data[region].columns[2:])        
         
         zero_counts_per_peptide = pd.Series(0, index=list(all_peptides))
         
         for region in self.roi_labels:
-            intensities = self.data[region].iloc[:, 4:]     # Grabs peptide columns for the roi
+            intensities = self.data[region].iloc[:, 2:]     # Grabs peptide columns for the roi
             zero_pct = (intensities==0).mean()      # Calculate percentage of 0 intensities for each peptide
             # Identify peptides as T/F based on zero_pct, and aligns Series to full peptide index (allows for peptides existing in some ROIs but not others)
             flagged = (zero_pct > 0.2).reindex(zero_counts_per_peptide.index, fill_value=0)     
@@ -226,9 +250,21 @@ class SpatialOmicsToolkit:
         results_list = []
         # Identify significant peptide 
         print('Identifying differentially expressed peptides...')
+<<<<<<< Updated upstream
         for peptide in self.good_peptides:
             group1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'DCIS']     # Mean intensities of peptide in DCIS (class 1) rois        
             group2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == 'IBC']      # Mean Intensities of peptide in IBC (class 2) rois
+=======
+        for peptide in self.good_peptides:                                                                           
+            group1 = [self.data[region][peptide].median() 
+                      for region in self.roi_labels 
+                      if self.roi_labels[region] == self.analysis_classes[0]
+                      and peptide in self.data[region].columns]
+            group2 = [self.data[region][peptide].median() 
+                      for region in self.roi_labels 
+                      if self.roi_labels[region] == self.analysis_classes[1]
+                      and peptide in self.data[region].columns]             
+>>>>>>> Stashed changes
             # Run KW
             H_statistic, p_value = stats.kruskal(group1, group2)
             # Add to data frame 
@@ -241,7 +277,7 @@ class SpatialOmicsToolkit:
         reject, q_values, _, _ = multipletests(results_df['pvalue_kw'], alpha=0.05, method='fdr_bh')
         results_df['qvalue_bh'] = q_values
         # Save peptides whose q value is <= 0.05
-        self.good_peptides = results_df[results_df['qvalue_bh'] <= 0.05]['peptide'].tolist()
+        self.good_peptides = results_df[results_df['pvalue_kw'] <= 0.05]['peptide'].tolist()
         if not self.good_peptides: 
             raise ValueError('No peptides were identified to be significant with 95 percent confidence. Pipeline stopped.') 
         print('Differential analysis complete. Significant peptides: ', self.good_peptides)
@@ -259,10 +295,27 @@ class SpatialOmicsToolkit:
         for peptide in self.good_peptides:
             fig, ax = plt.subplots(figsize=(2.5, 4))  # create axes explicitly
             plt.rcParams['font.serif'] = ['Arial']
+<<<<<<< Updated upstream
             plot_data = (
                 [{'Intensity': val, 'Class':'DCIS'} for val in [self.data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'DCIS' ]]
                 +
                 [{'Intensity': val, 'Class':'IBC'} for val in [self.data[region][peptide].mean() for region in self.roi_labels if self.roi_labels[region] == 'IBC' ]]
+=======
+
+            medians_class1 = [self.data[region][peptide].median() 
+                              for region in self.roi_labels 
+                              if self.roi_labels[region] == self.analysis_classes[0] 
+                              and peptide in self.data[region].columns]
+            medians_class2 = [self.data[region][peptide].median() 
+                              for region in self.roi_labels 
+                              if self.roi_labels[region] == self.analysis_classes[1] 
+                              and peptide in self.data[region].columns] 
+
+            plot_data = (                                    
+                [{'Intensity': val, 'Class':self.analysis_classes[0]} for val in medians_class1]
+                +
+                [{'Intensity': val, 'Class':self.analysis_classes[1]} for val in medians_class2]
+>>>>>>> Stashed changes
             )
             plot_df = pd.DataFrame(plot_data)
 
@@ -270,7 +323,11 @@ class SpatialOmicsToolkit:
                 data=plot_df, 
                 x='Class', y='Intensity', 
                 hue='Class', 
+<<<<<<< Updated upstream
                 palette={'DCIS':'dodgerblue', 'IBC':'orange'},
+=======
+                palette=self.roi_class_colors,    
+>>>>>>> Stashed changes
                 ax=ax
             )
 
@@ -297,25 +354,49 @@ class SpatialOmicsToolkit:
     def get_roi_stats(self):
         '''
         Calculates spatial centroid for each roi and the mean for every peptide in each roi. 
-        Return is used in generate_spatial_heatmap and get_hierarchical_clusters.  
+        Peptide medians are computed only over ROIs that actually contain that peptide. 
+        
+        self.roi_stats (np array) is created and contains roi name, spatial centroid (x,y), class, and medians. 
+        It is used in generate_spatial_heatmap and get_hierarchical_clusters.  
 
-        Returns:
-            roi_stats (np array) contains roi name, spatial centroid (x & y), class, and means for every peptide
-                roi_stats is used as an argument in generate_spatial_heatmap and get_hierarchical_clusters
         '''
         print('Calculating spatial centroids for each ROI...')
-        # Calculate spatial centroid of each roi
-            # Concatenate all ROI sheets, tagging each row with its ROI label
-        combined = pd.concat(
-            [df.assign(roi=roi) for roi, df in self.data.items() if roi in self.roi_labels],
-            ignore_index=True
-        )
-            # Groupby computes centroid AND all peptide means in one pass (vector operation)
-        agg_dict = {'x': 'mean', 'y': 'mean', **{p: 'median' for p in self.good_peptides}}
-        self.roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
+        
+        roi_rows = []
+        for roi, df in self.data.items():
+            if roi not in self.roi_labels:
+                continue
+            
+            row = {'roi': roi}
+            
+            # Spatial centroid 
+            row['x'] = df['x'].mean()
+            row['y'] = df['y'].mean()
+            
+            # Peptide medians
+            for p in self.good_peptides:
+                row[p] = df[p].median() if p in df.columns else np.nan
+                
+            roi_rows.append(row)
+            
+            
+        self.roi_stats = pd.DataFrame(roi_rows)
         self.roi_stats['class'] = self.roi_stats['roi'].map(self.roi_labels)
 
         print('ROI calculations successful!')
+<<<<<<< Updated upstream
+=======
+        print('Saving medians to datafram...')                
+        class1_rows = self.roi_stats[self.roi_stats['class'] == self.analysis_classes[0]][self.good_peptides]
+        class2_rows  = self.roi_stats[self.roi_stats['class'] == self.analysis_classes[1]][self.good_peptides]
+
+        plot_data_df = pd.DataFrame({
+            'median_class1_allrois': class1_rows.median(),      # NOTE
+            'median_class2_allrois':  class2_rows.median(),       # NOTE
+        }) 
+
+        self.output_excel = pd.concat([self.output_excel, plot_data_df], axis=1)
+>>>>>>> Stashed changes
 
 
     def generate_spatial_heatmap(self):
@@ -359,8 +440,18 @@ class SpatialOmicsToolkit:
         print('Generating hierarchical clusters...')
         # Extract peptide intensities per roi 
         feature_matrix = self.roi_stats[self.good_peptides].values
+        
+        # Check for NaN/inf values
+        if not np.isfinite(feature_matrix).all():
+            n_bad=(~np.isfinite(feature_matrix)).sum()
+            print(f'WARNING : Feature matrix contains {n_bad} non-finite values. Filling with column medians.')
+            df_fm = pd.DataFrame(feature_matrix, columns=self.good_peptides)
+            feature_matrix = df_fm.fillna(df_fm.median()).values
+        
         # Create dendrogram
         print('Constructing dendrogram for visualization...')
+        plt.rcParams['lines.linewidth'] = 2.5
+        plt.rcParams['font.serif'] = ['Arial']
         linkage_data = linkage(feature_matrix, method='ward', metric='euclidean')
         dend = dendrogram(linkage_data, labels=self.roi_stats['roi'].values)
  
@@ -399,7 +490,7 @@ class SpatialOmicsToolkit:
         good_peptides_str = [str(p) for p in self.good_peptides]
         roi_stats_str = self.roi_stats.copy()
         roi_stats_str.columns = [str(c) for c in roi_stats_str.columns]
-        roi_stats_str = roi_stats_str[roi_stats_str['class'] != 'Normal']
+        roi_stats_str = roi_stats_str[roi_stats_str['class'] != self.normal_class]
 
         X = roi_stats_str[good_peptides_str]
         y = roi_stats_str['class']
@@ -449,8 +540,17 @@ class SpatialOmicsToolkit:
         combined = pd.concat([df.assign(ROI=roi) for roi, df in self.data.items() if roi in self.roi_labels], 
                              ignore_index=True)
         
-        # Extract and scale peptide intensity matrix 
+        # Extract peptide intensity matrix 
         combined_intensities = combined[self.good_peptides].values.astype(float)
+        
+        # Impute NaNs with per-peptide medians
+        if np.isnan(combined_intensities).any():
+            col_medians = np.nanmedian(combined_intensities, axis=0)
+            nan_mask = np.isnan(combined_intensities)
+            combined_intensities[nan_mask] = np.take(col_medians, np.where(nan_mask)[1])
+            print(f'Imputed NaNs in {nan_mask.sum()} pixel-peptide entries with per-peptide medians.')
+        
+        # Scale peptide intensity matrix 
         combined_intensities = scale(combined_intensities)      # z-score scaling so peptides contribute equally to PCA
         
         # Build per-pixel metadata (obs)
@@ -502,11 +602,19 @@ class SpatialOmicsToolkit:
         sc.pp.pca(self.adata, n_comps=max_comps)       # Run pca with max comps
         cumsum = np.cumsum(self.adata.uns['pca']['variance_ratio'])
         
+<<<<<<< Updated upstream
         n_comps = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
         print(f'Retaining {n_comps} principal components (explain >= 99% of variance)')
 
         print('Running PCA...') 
         sc.pp.pca(self.adata, n_comps=3)
+=======
+        n_comps_ret = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
+        print(f'Retaining {n_comps_ret} principal components (explain >= 95% of variance)')
+
+        print('Running PCA...') 
+        sc.pp.pca(self.adata, n_comps=n_comps_ret)
+>>>>>>> Stashed changes
         
         print('Running UMAP analysis; this may take a while...')
         sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=3, n_neighbors=50)
@@ -574,6 +682,185 @@ class SpatialOmicsToolkit:
         print('UMAP with ROI centroids generation successful.')
 
 
+<<<<<<< Updated upstream
+=======
+        pca_coords = pd.DataFrame(
+            self.adata.obsm['X_pca'][:, :3],
+            columns=['PC1', 'PC2', 'PC3'],
+            index=self.adata.obs.index
+        )
+
+        pca_coords['class'] = self.adata.obs['class'].values
+        pca_coords['sample'] = self.adata.obs['sample'].values
+
+        classes= pca_coords['class'].unique()
+
+        fig = go.Figure()
+
+        # Plot pixels per class
+        for cls in classes:
+            mask = pca_coords['class'] == cls
+            subset = pca_coords[mask]
+            fig.add_trace(go.Scatter3d(
+                x=subset['PC1'],
+                y=subset['PC2'],
+                z=subset['PC3'],
+                mode='markers',
+                marker=dict(size=2,color=self.roi_class_colors[cls], opacity=0.15)
+            ))
+        
+        # Save interactive html
+        fig.write_html(os.path.join(os.path.dirname(self.data_path), 'results/pca_3d.html')) 
+
+    # def get_3d_umap(self):
+
+
+    def get_roi_level_mst(self):
+        '''
+        Builds a pseudotime MST on ROI spatial centroids. 
+        Nodes = ROIs (from roi_stats), edges weighted by Euclidean distance between centroids
+        Pseudotime is computed as shortest path distance from Normal root in the MST
+
+        Returns:
+            None, but saves mst_pseudotime.png and stores pseusotime in self.roi_stats['mst_pseudotime']
+        '''
+        print('Building ROI-level MST...')
+
+        # Step 1: Build distance matrix on spatial centroids
+        coords = self.roi_stats[self.good_peptides].values
+        dist_matrix = cdist(coords, coords, metric='Euclidean')
+
+        # Step 2: Compute MST
+        mst_sparse = minimum_spanning_tree(dist_matrix)
+        mst_array = mst_sparse.toarray()
+
+        # Step 3: Build Networkx graph from MST
+        G = nx.Graph()
+        roi_names = self.roi_stats['roi'].values
+        for i, name in enumerate(roi_names):
+            G.add_node(i, roi=name, cls=self.roi_stats['class'].iloc[i])
+        
+        n = len(roi_names)
+        for i in range(n):
+            for j in range(n):
+                w = mst_array[i, j]
+                if w > 0: 
+                    G.add_edge(i, j, weight=w)
+
+        # Store
+        self.mst_graph = G
+        self.mst_coords = coords    # median intensities, shape (n,2) 
+        
+        # Step 4: Select root node
+        if self.normal_class and (self.roi_stats['class'] == self.normal_class).any(): 
+            normal_mask = self.roi_stats['class'] == 'Normal'
+            normal_indices = self.roi_stats[normal_mask].index.tolist()
+            normal_coords = coords[normal_mask]
+            normal_centroid = normal_coords.mean(axis=0)
+            dists_to_centroid = np.linalg.norm(normal_coords - normal_centroid, axis=1)
+            local_root = np.argmin(dists_to_centroid)
+            root_node = normal_indices[local_root]
+            print('Root node identified as point closest to Normal centroid')
+            
+        else:
+            global_centroid = coords.mean(axis=0)
+            dists_to_global = np.linalg.norm(coords - global_centroid, axis=1)
+            root_node = int(np.argmin(dists_to_global))
+            print('Root node identified as point closest to global centroid')
+
+        # Step 5: Pseudotime = shortest path length from root (in MST edge weights)
+        path_lengths = nx.single_source_dijkstra_path_length(G, root_node, weight='weight')
+        max_len = max(path_lengths.values()) or 1       # avoid dividing by zero
+        self.roi_stats['mst_pseudotime'] = [path_lengths.get(i, np.nan) / max_len for i in range(n)]
+
+
+        # Step 6: Plot
+        class_colors = self.roi_class_colors
+        pos = {i: (coords[i, 0], coords[i, 1]) for i in range(n)}
+        labels = {i: roi_names[i].removeprefix('ROI_') for i in range(n)}
+        node_colors = [class_colors.get(G.nodes[i]['cls'], 'black') for i in G.nodes]
+
+        fig,ax = plt.subplots(figsize=(8,6))
+
+        # Draw MST edges manually so we control the axes object
+        for i, j in G.edges():
+            ax.plot([coords[i, 0], coords[j, 0]],
+                    [coords[i, 1], coords[j, 1]],
+                    color='black', linewidth=1, zorder=1)
+
+        # Draw ROI centroid nodes
+        for i in range(n):
+            ax.scatter(coords[i,0], coords[i,1],
+                       color=node_colors[i], s=300, edgecolors='black', linewidths=0.5, zorder=5)
+            ax.text(coords[i,0], coords[i,1], labels[i], 
+                    fontsize=8, fontweight='bold', ha='left', va='bottom', zorder=6)
+
+        # Legend
+        for cls, col in class_colors.items():
+            ax.scatter([], [], color=col, label=cls, s=80)
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+
+        ax.set_title('ROI-level MST')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/mst_pseudotime.png'),
+                    dpi=150, bbox_inches='tight')
+        plt.close()
+        print('ROI-level MST pseudotime complete. Saved to results/mst_pseudotime.png')
+
+
+    def project_mst_onto_umap(self):
+        '''
+        Projects the ROI-level MST onto UMAP space. 
+        The MST topology/connectivity is reconstructed identically, but nodes are at their mean UMAP coordinates instead.
+
+        Returns:
+            None, but saves mst_umap_projection.png to results/
+        '''
+        print('Projecting ROI-level MST onto UMAP space...')
+
+        # Check existance of required columns
+        if not hasattr(self, 'mst_graph') or not hasattr(self, 'mst_coords'):
+            raise RuntimeError('MST construction data not found, Run get_roi_level_mst() first.')
+        if 'UMAP1' not in self.roi_stats.columns: 
+            raise ValueError(f'roi_stats is missing columns UMAP1, UMAP2. Make sure run_pixel_dim_reduction() is run first.')
+        
+        # Create plotting assets
+        G = self.mst_graph
+        umap_coords = self.roi_stats[['UMAP1', 'UMAP2']].values
+        roi_names = self.roi_stats['roi'].values
+        n = len(roi_names)
+
+        class_colors = self.roi_class_colors
+        node_colors = [class_colors.get(G.nodes[i]['cls'], 'black') for i in G.nodes]
+        labels = {i: roi_names[i].removeprefix('ROI_') for i in range(n)}
+
+        # Plot
+        fig, ax = plt.subplots(figsize=(8,6))
+
+        for i, j in G.edges():
+            ax.plot([umap_coords[i, 0], umap_coords[j, 0]],
+                    [umap_coords[i, 1], umap_coords[j, 1]],
+                    color='black', linewidth=1, zorder=1)
+
+        for i in range(n):
+            ax.scatter(umap_coords[i, 0], umap_coords[i, 1],
+                    color=node_colors[i], s=100,
+                    edgecolors='black', linewidths=0.5, zorder=5)
+            ax.text(umap_coords[i, 0], umap_coords[i, 1], labels[i],
+                    fontsize=8, fontweight='bold', ha='left', va='bottom', zorder=6)
+            
+        ax.scatter(self.adata.obsm['X_umap'][:,0], self.adata.obsm['X_umap'][:,1], 
+                   c=[class_colors[c] for c in self.adata.obs['class']], 
+                   s=0.6, alpha=0.15, rasterized=True
+                )
+            
+        # Legend 
+        for cls, col in class_colors.items():
+            ax.scatter([], [], color=col, label=cls, s=80)
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+>>>>>>> Stashed changes
 
     
     def run_diffusion_pseudotime(self):
@@ -583,6 +870,7 @@ class SpatialOmicsToolkit:
         normal_idx = self.adata.obs[self.adata.obs['class']=='Normal'].index[0]
         self.adata.uns['iroot'] = self.adata.obs_names.get_loc(normal_idx)
 
+<<<<<<< Updated upstream
         # Calculate then store diffusion pseudotime
         print('Calculating pseudotime...')
         sc.pp.neighbors(self.adata, n_pcs=10) 
@@ -608,6 +896,31 @@ class SpatialOmicsToolkit:
         plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/dpt_pseudotime.png'))
         plt.close()
         print('Diffusion pseudotime reconstruction successful!')
+=======
+        ax.set_title('ROI-level MST (UMAP Projection)')
+        ax.set_xlabel('UMAP1')
+        ax.set_ylabel('UMAP2')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.path.dirname(self.data_path), 'results/mst_umap_projection.png'),
+                    dpi=150, bbox_inches='tight')
+        plt.close()
+        print('MST UMAP projection complete. Saved to results/mst_umap_projection.png')
+    
+    
+    def run_pseudotime_phate(self):
+            import phate
+            print('Running PHATE Pseudotime...')
+            plt.rcParams['font.serif'] = ['Arial']
+            phate_operator = phate.PHATE(knn=10, t=45, verbose=True)
+            self.adata.obsm['X_phate'] = phate_operator.fit_transform(self.adata.X)
+            sc.pl.embedding(self.adata, basis='phate', color='class', save='_class.png')    # Color by class
+            self.adata.obs['phate1'] = self.adata.obsm['X_phate'][:, 0]
+            sc.pl.embedding(self.adata, basis='phate', color='phate1', cmap='plasma', save='_pseudotime.png')   # Color by phate trajectory
+
+            print('PHATE generated successfully.')
+>>>>>>> Stashed changes
 
 
     def run_diffusion_pseudotime_w_curve(self):
