@@ -21,7 +21,8 @@ pip install git+https://github.com/angel-omics-lab/SPOT.git
 ```
 
 ## Usage
-1. Prepare the input data. If you already have an excel file with ROIs separated into unique sheets within the file, you can skip this step and proceed to Step 1b. 
+1. Prepare the input data. If you already have an excel file with ROIs separated into unique sheets within the file, you can skip this step and proceed to Step 1b.
+    * NOTE : The algorithm currently only accepts up to two non-control/non-normal classes. However, the algorithm is agnostic to whether or not a control/normal class is included, so it can be run with or without a 'Normal' class. 
     * a. Given imzML files for each region of interest, they can be converted to a pipeline-specific worksheet with the code below.
     * ```python
       from SPOT.class_dataPrep import ImzmlConverter
@@ -36,7 +37,7 @@ pip install git+https://github.com/angel-omics-lab/SPOT.git
       * If you dont have a code editor, you can copy the example_dataPrep.py file in /examples and edit it in a text editor.
       * Run the script in your terminal within the virtual environment.
     * b. Once your worksheet has been created, create a [JSON](https://www.w3schools.com/Js/js_json.asp) file that lists the ROIs and their disease classification. The ROI name in the JSON file and the individual sheet names contain ROI-specific data need to be identical. You can see examples of a properly formatted .xlsx file and .json file [here](https://drive.google.com/drive/folders/1-arHKAKMLO0oz5SW2x6M5L1ashdgdIYV?usp=sharing). You can directly download a copy of the file and change the roi names/classes or create your own from scratch, making sure the format is comparable to the example json. 
-2. Given the properly formatted worksheet and JSON file, you can run the entire analytical pipeline with the code below.
+3. Given the properly formatted worksheet and JSON file, you can run the entire analytical pipeline with the code below.
 * ```python
       from SPOT.class_dataAnalysis import SpatialOmicsToolkit
   
