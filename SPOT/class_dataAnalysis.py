@@ -656,7 +656,7 @@ class SpatialOmicsToolkit:
 
         print('Running PCA...') 
         sc.pp.pca(self.adata, n_comps=n_comps_ret)
-        
+
         print('Running UMAP analysis; this may take a while...')
         sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=3, n_neighbors=50)
         sc.tl.umap(self.adata, min_dist=0.75, n_components=3)
