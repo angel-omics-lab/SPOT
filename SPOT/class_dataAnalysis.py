@@ -92,11 +92,15 @@ class SpatialOmicsToolkit:
             dropped = set(peptide_cols) - set(numeric_peptide_cols)
             if dropped:
                 print(f'{region}: dropping {len(dropped)} non-numeric columns')
+
+            # Round peptide column headers to 3 decimal places
+            rename_map = {c: str(round(c, 3)) for c in numeric_peptide_cols}
+            df = df.rename(columns=rename_map)
+            rounded_peptide_cols = [rename_map[c] for c in numeric_peptide_cols]
             
-            self.data[region] =  df[metadata_cols + numeric_peptide_cols]
+            self.data[region] =  df[metadata_cols + rounded_peptide_cols]
         print('Spreadsheet formatting check complete.')
-
-
+                
         
     def filter_rois(self):
         '''
@@ -185,7 +189,7 @@ class SpatialOmicsToolkit:
         # Get union of all peptide columns across ROIs (handles ROIs w different peptides)       
         all_peptides = set()    
         for region in self.roi_labels:
-            all_peptides.update(self.data[region].columns[2:])        
+            all_peptides.update(str(c) for c in self.data[region].columns[2:])       
         
         zero_counts_per_peptide = pd.Series(0, index=list(all_peptides))
         
@@ -200,7 +204,7 @@ class SpatialOmicsToolkit:
         threshold = len(self.roi_labels)*0.10       
         self.good_peptides = zero_counts_per_peptide[zero_counts_per_peptide <= threshold].index.tolist()
 
-        print('Peptide sparsity filtering complete.')
+        print('Peptide filtering complete. Filtered list: ', self.good_peptides)
         # return [float(p) for p in self.good_peptides]
     
 
@@ -221,18 +225,23 @@ class SpatialOmicsToolkit:
         Identifies peptides that have differential expression between classes (in this instance DCIS v IBC) via 
         Kruskal-Wallis test with Benjamini-Hochberg FDR validation.
         
-        Returns: 
+        Returns:
             good_peptides(list) updated so it is now only those differentially expressed.
         '''
         results_list = []
         # Identify significant peptide 
         print('Identifying differentially expressed peptides...')
         for peptide in self.good_peptides:                                                                           
-            group1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[0] and peptide in self.data[region].columns]     # Median intensities of peptide in class 1 rois        
-            group2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[1] and peptide in self.data[region].columns]      # Median Intensities of peptide in class 2 rois
-            group3 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[1] and peptide in self.data[region].columns]
+            group1 = [self.data[region][peptide].median() 
+                      for region in self.roi_labels 
+                      if self.roi_labels[region] == self.analysis_classes[0]
+                      and peptide in self.data[region].columns]
+            group2 = [self.data[region][peptide].median() 
+                      for region in self.roi_labels 
+                      if self.roi_labels[region] == self.analysis_classes[1]
+                      and peptide in self.data[region].columns]             
             # Run KW
-            H_statistic, p_value = stats.kruskal(group1, group2, group3)
+            H_statistic, p_value = stats.kruskal(group1, group2)
             # Add to data frame 
             results_list.append({
             'peptide': peptide, 
@@ -243,11 +252,15 @@ class SpatialOmicsToolkit:
         reject, q_values, _, _ = multipletests(results_df['pvalue_kw'], alpha=0.05, method='fdr_bh')
         results_df['qvalue_bh'] = q_values
         # Save peptides whose q value is <= 0.05
-        self.good_peptides = results_df[results_df['qvalue_bh'] <= 0.05]['peptide'].tolist()
-        if len(self.good_peptides) == 0: 
-            raise ValueError('No peptides were identified to be significant with 95 percent confidence. Pipeline stopped.')
+        filtered_peptides = results_df[results_df['qvalue_bh'] <= 0.05]['peptide'].tolist()
+        if not filtered_peptides: 
+            print('WARNING: No peptides were identified with BH FDR qvalue <= 0.05. Falling back to peptides with KW pvalue <=0.05.')
+            self.good_peptides = results_df[results_df['pvalue_kw'] <= 0.05]['peptide'].tolist()
+        else: 
+            self.good_peptides = filtered_peptides
+        
         print('Differential analysis complete. Significant peptides: ', self.good_peptides)
-        print(f'{len(reject)} peptides removed: non-significant')
+        print(f'{len(self.good_peptides)} peptides retained.')
         print('Saving filtered peptide list to data frame...')
         self.output_excel = results_df.set_index('peptide')
         
@@ -263,13 +276,21 @@ class SpatialOmicsToolkit:
             fig, ax = plt.subplots(figsize=(2.5, 4))  # create axes explicitly
             plt.rcParams['font.serif'] = ['Arial']
 
-            medians_dcis = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[0]]
-            medians_ibc = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[1]] 
+            medians_class1 = [
+                self.data[region][peptide].median() 
+                for region in self.roi_labels 
+                if self.roi_labels[region] == self.analysis_classes[0]
+                and peptide in self.data[region].columns]
+            medians_class2 = [
+                self.data[region][peptide].median() 
+                for region in self.roi_labels 
+                if self.roi_labels[region] == self.analysis_classes[1]
+                and peptide in self.data[region].columns]
 
             plot_data = (                                    
-                [{'Intensity': val, 'Class':self.analysis_classes[0]} for val in medians_dcis]
+                [{'Intensity': val, 'Class':self.analysis_classes[0]} for val in medians_class1]
                 +
-                [{'Intensity': val, 'Class':self.analysis_classes[1]} for val in medians_ibc]
+                [{'Intensity': val, 'Class':self.analysis_classes[1]} for val in medians_class2]
             )
             plot_df = pd.DataFrame(plot_data)
 
@@ -326,8 +347,8 @@ class SpatialOmicsToolkit:
 
         print('ROI calculations successful!')
         print('Saving medians to datafram...')                
-        dcis_rows = self.roi_stats[self.roi_stats['class'] == self.analysis_classes[0]][self.good_peptides]
-        ibc_rows  = self.roi_stats[self.roi_stats['class'] == self.analysis_classes[1]][self.good_peptides]
+        class1_rows = self.roi_stats[self.roi_stats['class'] == self.analysis_classes[0]][self.good_peptides]
+        class2_rows  = self.roi_stats[self.roi_stats['class'] == self.analysis_classes[1]][self.good_peptides]
 
         plot_data_df = pd.DataFrame({
             'median_class1_allrois': class1_rows.median(),      # NOTE
@@ -630,11 +651,11 @@ class SpatialOmicsToolkit:
         sc.pp.pca(self.adata, n_comps=max_comps)       # Run pca with max comps
         cumsum = np.cumsum(self.adata.uns['pca']['variance_ratio'])
         
-        n_comps = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
-        print(f'Retaining {n_comps} principal components (explain >= 95% of variance)')
+        n_comps_ret = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
+        print(f'Retaining {n_comps_ret} principal components (explain >= 95% of variance)')
 
         print('Running PCA...') 
-        sc.pp.pca(self.adata, n_comps=20)
+        sc.pp.pca(self.adata, n_comps=n_comps_ret)
         
         print('Running UMAP analysis; this may take a while...')
         sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=3, n_neighbors=50)
@@ -938,5 +959,5 @@ class SpatialOmicsToolkit:
             traceback.print_exc()
         finally: 
             end = time.time()
-            duration = (end-start) // 60    # in minutes
+            duration = (end-start) / 60    # in minutes
             print(f'Total duration: {duration:.2f} minutes')
