@@ -92,11 +92,15 @@ class SpatialOmicsToolkit:
             dropped = set(peptide_cols) - set(numeric_peptide_cols)
             if dropped:
                 print(f'{region}: dropping {len(dropped)} non-numeric columns')
+
+            # Round peptide column headers to 3 decimal places
+            rename_map = {c: str(round(c, 3)) for c in numeric_peptide_cols}
+            df = df.rename(columns=rename_map)
+            rounded_peptide_cols = [rename_map[c] for c in numeric_peptide_cols]
             
-            self.data[region] =  df[metadata_cols + numeric_peptide_cols]
+            self.data[region] =  df[metadata_cols + rounded_peptide_cols]
         print('Spreadsheet formatting check complete.')
-
-
+                
         
     def filter_rois(self):
         '''
@@ -185,7 +189,7 @@ class SpatialOmicsToolkit:
         # Get union of all peptide columns across ROIs (handles ROIs w different peptides)       
         all_peptides = set()    
         for region in self.roi_labels:
-            all_peptides.update(self.data[region].columns[2:])        
+            all_peptides.update(str(c) for c in self.data[region].columns[2:])       
         
         zero_counts_per_peptide = pd.Series(0, index=list(all_peptides))
         
@@ -228,10 +232,6 @@ class SpatialOmicsToolkit:
         # Identify significant peptide 
         print('Identifying differentially expressed peptides...')
         for peptide in self.good_peptides:                                                                           
-<<<<<<< Updated upstream
-            group1 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[0]]     # Mean intensities of peptide in DCIS (class 1) rois        
-            group2 = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[1]]      # Mean Intensities of peptide in IBC (class 2) rois
-=======
             group1 = [self.data[region][peptide].median() 
                       for region in self.roi_labels 
                       if self.roi_labels[region] == self.analysis_classes[0]
@@ -240,7 +240,6 @@ class SpatialOmicsToolkit:
                       for region in self.roi_labels 
                       if self.roi_labels[region] == self.analysis_classes[1]
                       and peptide in self.data[region].columns]             
->>>>>>> Stashed changes
             # Run KW
             H_statistic, p_value = stats.kruskal(group1, group2)
             # Add to data frame 
@@ -277,17 +276,21 @@ class SpatialOmicsToolkit:
             fig, ax = plt.subplots(figsize=(2.5, 4))  # create axes explicitly
             plt.rcParams['font.serif'] = ['Arial']
 
-            medians_dcis = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[0]]
-            medians_ibc = [self.data[region][peptide].median() for region in self.roi_labels if self.roi_labels[region] == self.analysis_classes[1]] 
+            medians_class1 = [
+                self.data[region][peptide].median() 
+                for region in self.roi_labels 
+                if self.roi_labels[region] == self.analysis_classes[0]
+                and peptide in self.data[region].columns]
+            medians_class2 = [
+                self.data[region][peptide].median() 
+                for region in self.roi_labels 
+                if self.roi_labels[region] == self.analysis_classes[1]
+                and peptide in self.data[region].columns]
 
             plot_data = (                                    
-                [{'Intensity': val, 'Class':self.analysis_classes[0]} for val in medians_dcis]
+                [{'Intensity': val, 'Class':self.analysis_classes[0]} for val in medians_class1]
                 +
-<<<<<<< Updated upstream
-                [{'Intensity': val, 'Class':self.analysis_classes[1]} for val in medians_ibc]
-=======
                 [{'Intensity': val, 'Class':self.analysis_classes[1]} for val in medians_class2]
->>>>>>> Stashed changes
             )
             plot_df = pd.DataFrame(plot_data)
 
@@ -344,8 +347,8 @@ class SpatialOmicsToolkit:
 
         print('ROI calculations successful!')
         print('Saving medians to datafram...')                
-        dcis_rows = self.roi_stats[self.roi_stats['class'] == self.analysis_classes[0]][self.good_peptides]
-        ibc_rows  = self.roi_stats[self.roi_stats['class'] == self.analysis_classes[1]][self.good_peptides]
+        class1_rows = self.roi_stats[self.roi_stats['class'] == self.analysis_classes[0]][self.good_peptides]
+        class2_rows  = self.roi_stats[self.roi_stats['class'] == self.analysis_classes[1]][self.good_peptides]
 
         plot_data_df = pd.DataFrame({
             'median_class1_allrois': class1_rows.median(),      # NOTE
@@ -648,20 +651,12 @@ class SpatialOmicsToolkit:
         sc.pp.pca(self.adata, n_comps=max_comps)       # Run pca with max comps
         cumsum = np.cumsum(self.adata.uns['pca']['variance_ratio'])
         
-<<<<<<< Updated upstream
-        n_comps = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
-        print(f'Retaining {n_comps} principal components (explain >= 95% of variance)')
-
-        print('Running PCA...') 
-        sc.pp.pca(self.adata, n_comps=20)
-=======
         n_comps_ret = int(np.argmax(cumsum>=0.95) + 1)      # Retain comp
         print(f'Retaining {n_comps_ret} principal components (explain >= 95% of variance)')
 
         print('Running PCA...') 
         sc.pp.pca(self.adata, n_comps=n_comps_ret)
->>>>>>> Stashed changes
-        
+
         print('Running UMAP analysis; this may take a while...')
         sc.pp.neighbors(self.adata, use_rep='X_pca', n_pcs=3, n_neighbors=50)
         sc.tl.umap(self.adata, min_dist=0.75, n_components=3)
