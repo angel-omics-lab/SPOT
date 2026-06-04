@@ -23,7 +23,8 @@ dependencies = [
     "openpyxl",
     "xlsxwriter",
     "pyimzml",
-    "pcurvepy2"
+    "pcurvepy2",
+    "phate"
 ]
 
 [tool.hatch.build.targets.wheel]
