@@ -343,6 +343,7 @@ class SpatialOmicsToolkit:
             # Groupby computes centroid AND all peptide means in one pass (vector operation)
         agg_dict = {'x': 'mean', 'y': 'mean', **{p: 'median' for p in self.good_peptides}}
         self.roi_stats = combined.groupby('roi').agg(agg_dict).reset_index()     # roi_stats columns: ['roi', 'x', 'y', peptide_1, peptide_2, ...]
+        self.roi_stats[self.good_peptides] = self.roi_stats[self.good_peptides].fillna(0)
         self.roi_stats['class'] = self.roi_stats['roi'].map(self.roi_labels)
 
         print('ROI calculations successful!')
@@ -599,7 +600,7 @@ class SpatialOmicsToolkit:
                              ignore_index=True)
         
         # Extract and scale peptide intensity matrix 
-        combined_intensities = combined[self.good_peptides].values.astype(float)
+        combined_intensities = combined[self.good_peptides].fillna(0).values.astype(float)
         combined_intensities = scale(combined_intensities)      # z-score scaling so peptides contribute equally to PCA
         
         # Build per-pixel metadata (obs)
