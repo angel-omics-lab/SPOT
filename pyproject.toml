@@ -24,7 +24,8 @@ dependencies = [
     "xlsxwriter",
     "pyimzml",
     "pcurvepy2",
-    "phate"
+    "phate",
+    "plotly"
 ]
 
 [tool.hatch.build.targets.wheel]
